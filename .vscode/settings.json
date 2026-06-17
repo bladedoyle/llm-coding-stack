@@ -1,0 +1,17 @@
+{
+  "docker.environment": {
+    "DOCKER_BUILDKIT": "1"
+  },
+  "files.watcherExclude": {
+    "**/cline-data/**": true,
+    "**/vscode-server/**": true,
+    "**/vscode-server-insiders/**": true
+  },
+  "terminal.integrated.env.linux": {
+    "CODEX_LM_STUDIO_API_KEY": "lm-studio",
+    "LM_STUDIO_BASE_URL": "http://lmstudio:1234/v1"
+  },
+  "containers.environment": {
+    "DOCKER_BUILDKIT": "1"
+  }
+}

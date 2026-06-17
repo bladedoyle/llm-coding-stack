@@ -1,0 +1,22 @@
+{
+  "folders": [
+    {
+      "name": "Local LLM Stack",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "docker.environment": {
+      "DOCKER_BUILDKIT": "1"
+    },
+    "terminal.integrated.defaultProfile.linux": "bash",
+    "files.exclude": {
+      "vscode-server": true,
+      "vscode-server-insiders": true
+    },
+    "files.watcherExclude": {
+      "**/vscode-server/**": true,
+      "**/vscode-server-insiders/**": true
+    }
+  }
+}

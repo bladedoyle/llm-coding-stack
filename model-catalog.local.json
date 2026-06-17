@@ -1,0 +1,100 @@
+{
+  "models": [
+    {
+      "slug": "openai/gpt-oss-20b", "display_name": "GPT OSS 20B",
+      "description": "Local GPT OSS 20B via LM Studio",
+      "prefer_websockets": false, "support_verbosity": false, "default_verbosity": "low",
+      "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image",
+      "input_modalities": ["text"], "supports_image_detail_original": false,
+      "truncation_policy": { "mode": "tokens", "limit": 10000 },
+      "supports_parallel_tool_calls": false,
+      "context_window": 131072, "max_context_window": 131072, "auto_compact_token_limit": null,
+      "reasoning_summary_format": "none", "default_reasoning_summary": "none",
+      "default_reasoning_level": "low",
+      "supported_reasoning_levels": [
+        { "effort": "low", "description": "Standard inference, no reasoning tokens" },
+        { "effort": "medium", "description": "Standard inference, no reasoning tokens" }
+      ],
+      "shell_type": "shell_command", "visibility": "list",
+      "minimal_client_version": "0.0.0", "supported_in_api": false,
+      "availability_nux": null, "upgrade": null, "priority": 0,
+      "base_instructions": "",
+      "model_messages": { "instructions_template": "", "instructions_variables": {} },
+      "experimental_supported_tools": [], "available_in_plans": [],
+      "supports_search_tool": false, "service_tiers": [], "additional_speed_tiers": [],
+      "supports_reasoning_summaries": false
+    },
+    {
+      "slug": "ibm/granite-4-micro", "display_name": "Granite 4 Micro",
+      "description": "Local Granite 4 Micro via LM Studio",
+      "prefer_websockets": false, "support_verbosity": false, "default_verbosity": "low",
+      "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image",
+      "input_modalities": ["text"], "supports_image_detail_original": false,
+      "truncation_policy": { "mode": "tokens", "limit": 10000 },
+      "supports_parallel_tool_calls": false,
+      "context_window": 131072, "max_context_window": 131072, "auto_compact_token_limit": null,
+      "reasoning_summary_format": "none", "default_reasoning_summary": "none",
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        { "effort": "low", "description": "Standard inference, no reasoning tokens" },
+        { "effort": "medium", "description": "Standard inference, no reasoning tokens" }
+      ],
+      "shell_type": "shell_command", "visibility": "list",
+      "minimal_client_version": "0.0.0", "supported_in_api": false,
+      "availability_nux": null, "upgrade": null, "priority": 0,
+      "base_instructions": "",
+      "model_messages": { "instructions_template": "", "instructions_variables": {} },
+      "experimental_supported_tools": [], "available_in_plans": [],
+      "supports_search_tool": false, "service_tiers": [], "additional_speed_tiers": [],
+      "supports_reasoning_summaries": false
+    },
+    {
+      "slug": "qwen/qwen2.5-coder-32b-instruct", "display_name": "Qwen2.5-Coder 32B Instruct",
+      "description": "Local Qwen2.5-Coder 32B Instruct via LM Studio",
+      "prefer_websockets": false, "support_verbosity": false, "default_verbosity": "low",
+      "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image",
+      "input_modalities": ["text"], "supports_image_detail_original": false,
+      "truncation_policy": { "mode": "tokens", "limit": 10000 },
+      "supports_parallel_tool_calls": false,
+      "context_window": 131072, "max_context_window": 131072, "auto_compact_token_limit": null,
+      "reasoning_summary_format": "none", "default_reasoning_summary": "none",
+      "default_reasoning_level": "low",
+      "supported_reasoning_levels": [
+        { "effort": "low", "description": "Standard inference, no reasoning tokens" },
+        { "effort": "medium", "description": "Standard inference, no reasoning tokens" }
+      ],
+      "shell_type": "shell_command", "visibility": "list",
+      "minimal_client_version": "0.0.0", "supported_in_api": false,
+      "availability_nux": null, "upgrade": null, "priority": 0,
+      "base_instructions": "",
+      "model_messages": { "instructions_template": "", "instructions_variables": {} },
+      "experimental_supported_tools": [], "available_in_plans": [],
+      "supports_search_tool": false, "service_tiers": [], "additional_speed_tiers": [],
+      "supports_reasoning_summaries": false
+    },
+    {
+      "slug": "mistralai/devstral-small-2505", "display_name": "Devstral Small 2505",
+      "description": "Local Devstral Small 2505 via LM Studio",
+      "prefer_websockets": false, "support_verbosity": false, "default_verbosity": "low",
+      "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image",
+      "input_modalities": ["text"], "supports_image_detail_original": false,
+      "truncation_policy": { "mode": "tokens", "limit": 10000 },
+      "supports_parallel_tool_calls": false,
+      "context_window": 131072, "max_context_window": 131072, "auto_compact_token_limit": null,
+      "reasoning_summary_format": "none", "default_reasoning_summary": "none",
+      "default_reasoning_level": "low",
+      "supported_reasoning_levels": [
+        { "effort": "low", "description": "Standard inference, no reasoning tokens" },
+        { "effort": "medium", "description": "Standard inference, no reasoning tokens" }
+      ],
+      "shell_type": "shell_command", "visibility": "list",
+      "minimal_client_version": "0.0.0", "supported_in_api": false,
+      "availability_nux": null, "upgrade": null, "priority": 0,
+      "base_instructions": "",
+      "model_messages": { "instructions_template": "", "instructions_variables": {} },
+      "experimental_supported_tools": [], "available_in_plans": [],
+      "supports_search_tool": false, "service_tiers": [], "additional_speed_tiers": [],
+      "supports_reasoning_summaries": false
+    }
+  ]
+}

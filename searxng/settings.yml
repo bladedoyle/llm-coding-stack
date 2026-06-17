@@ -1,0 +1,12 @@
+use_default_settings: true
+
+server:
+  secret_key: "change-me-please"
+  limiter: false
+  image_proxy: true
+
+search:
+  # json is required by the mcp-searxng server; html kept for browser use.
+  formats:
+    - html
+    - json

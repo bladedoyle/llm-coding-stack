@@ -1,0 +1,154 @@
+FROM node:22-slim
+
+ARG USERNAME=codex
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        procps \
+        bubblewrap \
+        vim \
+        less \
+        jq \
+        ripgrep \
+        unzip \
+        file \
+        build-essential \
+        clang \
+        golang \
+        make \
+        cmake \
+        pkg-config \
+        gcc \
+        g++ \
+        gdb \
+        python3 \
+        python3-pip \
+        python3-venv \
+        sudo \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g @openai/codex
+
+# Pre-install the common Node-based MCP servers so they load instantly and
+# offline (no npx registry fetch at agent start). Bins land in /usr/local/bin.
+RUN npm install -g \
+        @modelcontextprotocol/server-filesystem \
+        @modelcontextprotocol/server-memory \
+        @modelcontextprotocol/server-sequential-thinking \
+        mcp-searxng
+
+# uv provides the Python-based MCP servers (git, fetch). Install uv and the
+# tools system-wide, pinned to the system python so the codex user can run them.
+ENV UV_TOOL_BIN_DIR=/usr/local/bin \
+    UV_TOOL_DIR=/opt/uv/tools
+RUN curl -LsSf https://astral.sh/uv/install.sh \
+        | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh \
+ && uv tool install --python /usr/bin/python3 mcp-server-git \
+ && uv tool install --python /usr/bin/python3 mcp-server-fetch \
+ && uv tool install --python /usr/bin/python3 mcp-server-qdrant \
+ && chmod -R a+rX /opt/uv
+
+RUN userdel -r node 2>/dev/null || true \
+ && groupdel node 2>/dev/null || true \
+ && groupadd --gid ${USER_GID} ${USERNAME} \
+ && useradd --uid ${USER_UID} --gid ${USER_GID} --shell /bin/bash \
+            --create-home ${USERNAME} \
+ && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
+ && chmod 0440 /etc/sudoers.d/${USERNAME}
+
+# Wrapper so every `codex` invocation skips bwrap inside Docker.
+# Rename the real binary and drop a shim at the same path.
+RUN mv /usr/local/bin/codex /usr/local/bin/codex.real \
+ && printf '#!/bin/sh\nexec /usr/local/bin/codex.real --dangerously-bypass-approvals-and-sandbox "$@"\n' \
+        > /usr/local/bin/codex \
+ && chmod +x /usr/local/bin/codex
+
+# Pre-configure LM Studio as the local OpenAI-compatible provider.
+# LM_STUDIO_BASE_URL can be overridden at runtime.
+ENV LM_STUDIO_BASE_URL=http://lmstudio:1234/v1
+
+RUN mkdir -p /home/${USERNAME}/.codex/model-catalogs
+
+# Copy pre-built catalog with all fields the upstream schema requires.
+# Edit model-catalog.local.json in the build context to add models.
+COPY model-catalog.local.json /home/${USERNAME}/.codex/model-catalogs/local.json
+
+# Base config.toml: provider + catalog only. Codex 0.134.0+ rejects the legacy
+# [profiles.*] table and the top-level profile selector; profiles must live in
+# their own ~/.codex/<name>.config.toml file using top-level keys.
+RUN printf '# Avoid reserved names ("ollama", "oss", "lmstudio") -- they hardcode\n\
+# localhost checks and ignore base_url. Use a custom name instead.\n\
+# LM Studio supports the OpenAI-compatible /v1/responses endpoint used by Codex.\n\
+model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n\
+\n\
+[model_providers.local-lm-studio]\n\
+name = "Local LM Studio"\n\
+base_url = "http://lmstudio:1234/v1"\n\
+env_key = "CODEX_LM_STUDIO_API_KEY"\n\
+wire_api = "responses"\n' > /home/${USERNAME}/.codex/config.toml \
+ && printf '\n\
+# Common MCP servers enabled for the Codex agent. All are pre-installed in the\n\
+# image so they start without network access.\n\
+[mcp_servers.filesystem]\n\
+command = "mcp-server-filesystem"\n\
+args = ["/workspaces"]\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.git]\n\
+command = "mcp-server-git"\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.fetch]\n\
+command = "mcp-server-fetch"\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.memory]\n\
+command = "mcp-server-memory"\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.memory.env]\n\
+MEMORY_FILE_PATH = "/home/codex/.mcp-memory/memory.jsonl"\n\
+\n\
+[mcp_servers.sequential-thinking]\n\
+command = "mcp-server-sequential-thinking"\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.searxng]\n\
+command = "mcp-searxng"\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.searxng.env]\n\
+SEARXNG_URL = "http://searxng:8080"\n\
+\n\
+[mcp_servers.qdrant]\n\
+command = "mcp-server-qdrant"\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.qdrant.env]\n\
+QDRANT_URL = "http://qdrant:6333"\n\
+COLLECTION_NAME = "codebase"\n\
+EMBEDDING_PROVIDER = "fastembed"\n\
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"\n\
+FASTEMBED_CACHE_PATH = "/home/codex/.cache/fastembed"\n' >> /home/${USERNAME}/.codex/config.toml \
+ && printf 'model_provider = "local-lm-studio"\n\
+model = "openai/gpt-oss-20b"\n\
+model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n' > /home/${USERNAME}/.codex/lm-studio.config.toml \
+ && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.codex \
+ && mkdir -p /home/${USERNAME}/.mcp-memory \
+ && chown ${USERNAME}:${USERNAME} /home/${USERNAME}/.mcp-memory \
+ && FASTEMBED_CACHE_PATH=/home/${USERNAME}/.cache/fastembed \
+    /opt/uv/tools/mcp-server-qdrant/bin/python -c "from fastembed import TextEmbedding; TextEmbedding('sentence-transformers/all-MiniLM-L6-v2')" \
+ && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.cache
+
+# Dummy key - LM Studio does not require a real OpenAI key for local requests.
+ENV CODEX_LM_STUDIO_API_KEY=lm-studio
+
+USER ${USERNAME}
+WORKDIR /workspaces
+
+CMD ["codex", "--profile", "lm-studio"]

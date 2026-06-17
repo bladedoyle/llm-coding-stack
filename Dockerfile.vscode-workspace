@@ -1,0 +1,137 @@
+FROM mcr.microsoft.com/devcontainers/base:ubuntu-22.04
+
+ARG USERNAME=vscode
+
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential \
+        clang \
+        cmake \
+        pkg-config \
+        gdb \
+        file \
+        ca-certificates \
+        curl \
+        git \
+        gnupg \
+        jq \
+        less \
+        lsb-release \
+        python3 \
+        python3-pip \
+        python3-venv \
+        ripgrep \
+        bubblewrap \
+        vim \
+        unzip \
+        gcc \
+        g++ \
+        clang \
+        golang \
+        make \
+        build-essential \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/* \
+ && npm install -g pnpm yarn @openai/codex \
+        @modelcontextprotocol/server-filesystem \
+        @modelcontextprotocol/server-memory \
+        @modelcontextprotocol/server-sequential-thinking \
+        mcp-searxng
+
+# uv + Python MCP servers (git, fetch)
+ENV UV_TOOL_BIN_DIR=/usr/local/bin \
+    UV_TOOL_DIR=/opt/uv/tools
+RUN curl -LsSf https://astral.sh/uv/install.sh \
+        | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh \
+ && uv tool install --python /usr/bin/python3 mcp-server-git \
+ && uv tool install --python /usr/bin/python3 mcp-server-fetch \
+ && uv tool install --python /usr/bin/python3 mcp-server-qdrant \
+ && chmod -R a+rX /opt/uv
+
+# Codex config: split profile format required by Codex 0.134+.
+RUN mkdir -p /home/${USERNAME}/.codex/model-catalogs \
+ && printf 'model_provider = "local-lm-studio"\n\
+model = "openai/gpt-oss-20b"\n\
+model_catalog_json = "/home/vscode/.codex/model-catalogs/local.json"\n\
+personality = "pragmatic"\n\
+\n\
+[model_providers.local-lm-studio]\n\
+name = "Local LM Studio"\n\
+base_url = "http://lmstudio:1234/v1"\n\
+env_key = "CODEX_LM_STUDIO_API_KEY"\n\
+wire_api = "responses"\n\
+\n\
+[mcp_servers.filesystem]\n\
+command = "mcp-server-filesystem"\n\
+args = ["/workspaces"]\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.git]\n\
+command = "mcp-server-git"\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.fetch]\n\
+command = "mcp-server-fetch"\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.memory]\n\
+command = "mcp-server-memory"\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.memory.env]\n\
+MEMORY_FILE_PATH = "/home/vscode/.mcp-memory/memory.jsonl"\n\
+\n\
+[mcp_servers.sequential-thinking]\n\
+command = "mcp-server-sequential-thinking"\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.searxng]\n\
+command = "mcp-searxng"\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.searxng.env]\n\
+SEARXNG_URL = "http://searxng:8080"\n\
+\n\
+[mcp_servers.qdrant]\n\
+command = "mcp-server-qdrant"\n\
+startup_timeout_sec = 60\n\
+\n\
+[mcp_servers.qdrant.env]\n\
+QDRANT_URL = "http://qdrant:6333"\n\
+COLLECTION_NAME = "codebase"\n\
+EMBEDDING_PROVIDER = "fastembed"\n\
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"\n\
+FASTEMBED_CACHE_PATH = "/home/vscode/.cache/fastembed"\n' > /home/${USERNAME}/.codex/config.toml \
+ && printf 'model_provider = "local-lm-studio"\n\
+model = "openai/gpt-oss-20b"\n\
+model_catalog_json = "/home/vscode/.codex/model-catalogs/local.json"\n' \
+     > /home/${USERNAME}/.codex/lm-studio.config.toml
+
+COPY model-catalog.local.json /home/${USERNAME}/.codex/model-catalogs/local.json
+
+# Personal custom instructions surfaced by the VS Code extension's
+# Personalization -> Custom Instructions panel; backed by ~/.codex/AGENTS.md.
+RUN printf '# Personal agent directives\n\
+\n\
+- Do not print code or patches to the chat; update source files directly using your editing tools.\n\
+- After making changes, summarize what was changed and where — do not re-paste the modified code.\n\
+- Keep changes minimal and scoped to the request; do not refactor unrelated code.\n\
+- Ask before performing destructive actions (deleting files, force-pushing, deploying).\n' \
+        > /home/${USERNAME}/.codex/AGENTS.md
+
+# Seed an API-key auth.json so the VS Code Codex extension skips ChatGPT sign-in
+RUN HOME=/home/${USERNAME} sh -lc 'printf "lm-studio" | codex login --with-api-key'
+
+RUN chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.codex \
+ && mkdir -p /home/${USERNAME}/.mcp-memory \
+ && chown ${USERNAME}:${USERNAME} /home/${USERNAME}/.mcp-memory \
+ && FASTEMBED_CACHE_PATH=/home/${USERNAME}/.cache/fastembed \
+    /opt/uv/tools/mcp-server-qdrant/bin/python -c "from fastembed import TextEmbedding; TextEmbedding('sentence-transformers/all-MiniLM-L6-v2')" \
+ && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.cache
+
+ENV CODEX_LM_STUDIO_API_KEY=lm-studio
+
+WORKDIR /workspaces

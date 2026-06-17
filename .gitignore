@@ -1,0 +1,18 @@
+# User projects mounted into workspace container (not part of the stack config)
+workspaces/*
+!workspaces/.gitkeep
+
+# Editor artifacts
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+.env
+venv/
+.venv/
+
+# Logs
+*.log

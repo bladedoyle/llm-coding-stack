@@ -1,0 +1,32 @@
+{
+  "name": "local-llm-stack",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "workspace",
+  "workspaceFolder": "/workspaces",
+  "shutdownAction": "none",
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "CODEX_LM_STUDIO_API_KEY": "lm-studio",
+    "LM_STUDIO_BASE_URL": "http://lmstudio:1234/v1"
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.cwd": "/workspaces",
+        "files.dialog.defaultPath": "/workspaces",
+        "files.watcherExclude": {
+          "**/.git/objects/**": true,
+          "**/node_modules/**": true,
+          "**/vscode-server/**": true,
+          "**/vscode-server-insiders/**": true
+        }
+      },
+      "extensions": [
+        "openai.chatgpt",
+        "ms-azuretools.vscode-docker",
+        "eamodio.gitlens"
+      ]
+    }
+  }
+}

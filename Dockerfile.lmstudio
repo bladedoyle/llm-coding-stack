@@ -1,0 +1,47 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LMS_SERVER_HOST=0.0.0.0
+ENV LMS_SERVER_PORT=1234
+ENV PATH="/root/.lmstudio/bin:/root/.local/bin:${PATH}"
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        procps \
+        xz-utils \
+        libatomic1 \
+        libgomp1 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Installs llmster and the lms CLI for headless LM Studio operation.
+RUN curl -fsSL https://lmstudio.ai/install.sh | bash
+
+EXPOSE 1234
+
+# Preload the coding model with a large context window. JIT-loaded models
+# default to a 4096-token context, which is too small for Codex's prompt.
+ENV LMS_DEFAULT_MODEL=openai/gpt-oss-20b
+ENV LMS_DEFAULT_CONTEXT_LENGTH=32768
+ENV LMS_EMBEDDING_MODEL=text-embedding-nomic-embed-text-v1.5
+
+# Startup sequence:
+#  1. Start daemon + server.
+#  2. Pull the chat model if not already on disk (best-effort; skips if present).
+#  3. Pull the embedding model (best-effort).
+#  4. Load the chat model with the configured context length, retrying on GPU race.
+#  5. Load the embedding model.
+#  6. Stream logs so the container stays alive.
+CMD ["bash", "-lc", "\
+  lms daemon up && \
+  lms server start --bind ${LMS_SERVER_HOST} --port ${LMS_SERVER_PORT} && \
+  (lms get ${LMS_DEFAULT_MODEL} --yes || true) && \
+  (lms get ${LMS_EMBEDDING_MODEL} --yes || true) && \
+  (for i in 1 2 3 4 5 6; do \
+     lms load ${LMS_DEFAULT_MODEL} -c ${LMS_DEFAULT_CONTEXT_LENGTH} --gpu max -y && break; \
+     echo \"chat model load failed, retry $i\"; sleep 5; \
+   done) && \
+  (lms load ${LMS_EMBEDDING_MODEL} -y || true) && \
+  lms log stream"]
