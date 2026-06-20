@@ -28,6 +28,8 @@ RUN apt-get update \
         g++ \
         clang \
         golang \
+        rustc \
+        cargo \
         make \
         build-essential \
  && rm -rf /var/lib/apt/lists/*
