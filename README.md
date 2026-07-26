@@ -5,8 +5,12 @@ A complete, GPU-accelerated local development stack using Docker Compose. This p
 ## Features
 - **LM Studio**: Local model server (gpt-oss-20b) with GPU acceleration.
 - **LiteLLM**: OpenAI-compatible gateway for multi-client routing.
+- **Chutes / Bittensor**: Optional cloud model pool, available to Codex and
+  Open WebUI alongside the local model.
 - **Open WebUI**: Rich web interface for chat.
 - **Codex CLI**: Autonomous coding agent for terminal-based tasks.
+- **Claude Code CLI**: Anthropic's coding agent routed through the same local
+  LiteLLM providers as Codex.
 - **VS Code Workspace**: Pre-configured devcontainer with full toolchain and agents.
 - **Kokoro TTS**: High-quality local text-to-speech.
 - **Qdrant & SearXNG**: Vector memory and web search for agents.
@@ -28,6 +32,39 @@ cd local-llm-stack
 # Build and start all services
 docker compose up -d
 ```
+
+To enable the optional Chutes/Bittensor route, create your local secret file
+before starting the stack:
+```bash
+cp .env.example .env
+# Edit .env and set CHUTES_API_KEY to your cpk_ key.
+```
+
+Set `CHUTES_MODEL` in `.env` to the exact Chutes model ID you want, for example
+`deepseek-ai/DeepSeek-V3.2-TEE`. Codex routes through the local LiteLLM gateway,
+which is configured to log request and response payloads for local inspection.
+Set `CHUTES_CONTEXT_WINDOW` there as well; `65536` is the default. The key is
+not stored in the repository or Docker images.
+
+LM Studio runs one local prediction at a time. Each Chutes gateway route allows
+up to five concurrent requests in LiteLLM.
+
+Set `LLM_PROVIDER=chutes` to make Chutes the VS Code Codex plugin default, or
+`LLM_PROVIDER=local` to use LM Studio's `openai/gpt-oss-20b` instead. Set it to
+`openrouter` to use the model selected by `OPENROUTER_MODEL` via OpenRouter.
+The same selector configures Claude Code. Recreate the `workspace`, `codex`,
+and `claude-code` services after changing the selector.
+
+Use `LITELLM_DEBUG_MODE=off`, `debug`, or `detailed` in `.env` to control
+LiteLLM gateway logging. `detailed` logs may contain prompt and tool data.
+
+The Chutes Codex provider retries interrupted response streams up to 50 times.
+
+OpenRouter is also available through LiteLLM as `openrouter/model`,
+backed by the model selected with `OPENROUTER_MODEL` in `.env`. Set
+`OPENROUTER_API_KEY` there before using it. The default model is
+`tencent/hy3:free`; its OpenRouter Codex context default is
+`OPENROUTER_CONTEXT_WINDOW=98304`.
 
 On first start, the `lmstudio` container will automatically pull the `gpt-oss-20b` model (~8-9 GB). You can track progress with:
 ```bash

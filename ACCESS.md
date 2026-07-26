@@ -23,6 +23,11 @@ Browser UI for chatting with the local model:
 docker compose exec codex bash -c "cd /workspaces/myProject; codex --profile lm-studio"
 ```
 
+Use your Chutes/Bittensor model pool instead:
+```bash
+docker compose exec codex bash -c "cd /workspaces/myProject; codex --profile chutes"
+```
+
 Non-interactive one-shot:
 ```bash
 docker compose exec codex bash -c "cd /workspaces/myProject; codex exec --profile lm-studio --skip-git-repo-check \"your task here\""
@@ -48,6 +53,37 @@ Codex also works from the integrated terminal inside the container:
 codex --profile lm-studio
 ```
 
+The VS Code Codex plugin defaults to the `CHUTES_MODEL` configured in `.env`,
+routed through LiteLLM and Chutes. For the terminal, run
+`codex --profile chutes`.
+
+---
+
+## 4. Claude Code CLI
+
+Claude Code uses the same `LLM_PROVIDER` value as Codex and VS Code:
+`chutes`, `local`, or `openrouter`. Start it in a project with:
+
+```bash
+docker compose exec claude-code bash -lc "cd /workspaces/myProject; claude"
+```
+
+For a non-interactive one-shot:
+
+```bash
+docker compose exec claude-code bash -lc \
+  "cd /workspaces/myProject; claude -p 'your task here'"
+```
+
+Claude Code sends Anthropic Messages API requests to LiteLLM at
+`http://litellm:4000`, which maps the selected provider to the same stable model
+aliases used elsewhere in the stack. After changing `LLM_PROVIDER`, recreate
+only this CLI container to apply its new default:
+
+```bash
+docker compose up -d --force-recreate --no-deps claude-code
+```
+
 ---
 
 ### Other services
@@ -59,6 +95,29 @@ codex --profile lm-studio
 # List available model aliases
 curl http://localhost:4000/v1/models -H "Authorization: Bearer lm-studio" | jq .
 ```
+
+Chutes is exposed as `chutes/model`. Select that model in Open WebUI
+after adding your Chutes key to `.env` and restarting LiteLLM.
+
+The model selected by `OPENROUTER_MODEL` is exposed as the stable
+`openrouter/model` route. Set `OPENROUTER_MODEL` and
+`OPENROUTER_API_KEY` in `.env`, then restart LiteLLM before selecting it in
+Open WebUI.
+
+Use it with Codex from a terminal via `codex --profile openrouter`. To make it
+the VS Code Codex plugin default, set `LLM_PROVIDER=openrouter` in `.env` before
+recreating the workspace.
+
+Codex Responses-API traffic is routed as `chutes/model-responses`. View its
+request and response payloads with:
+```bash
+docker compose logs -f litellm
+```
+Those logs can include prompts, source code, tool output, and credentials in
+tool arguments; keep them local and do not share them.
+
+Set `LITELLM_DEBUG_MODE` in `.env` to `off`, `debug`, or `detailed`, then
+recreate LiteLLM to apply it.
 
 ---
 

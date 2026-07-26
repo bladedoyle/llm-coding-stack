@@ -35,9 +35,16 @@ services:
       - "127.0.0.1:4000:4000"
     volumes:
       - ./litellm_config.yaml:/app/config.yaml:ro
-    command: ["--config", "/app/config.yaml", "--port", "4000", "--host", "0.0.0.0"]
+      - ./litellm-entrypoint.sh:/app/litellm-entrypoint.sh:ro
+    # See LITELLM_DEBUG_MODE in .env. Keep detailed gateway logs local.
+    entrypoint: ["/bin/sh", "/app/litellm-entrypoint.sh"]
     environment:
       - LITELLM_MASTER_KEY=lm-studio
+      - CHUTES_API_KEY=${CHUTES_API_KEY:-}
+      - CHUTES_MODEL=${CHUTES_MODEL:-deepseek-ai/DeepSeek-V3.2-TEE}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-tencent/hy3:free}
+      - LITELLM_DEBUG_MODE=${LITELLM_DEBUG_MODE:-detailed}
     depends_on:
       lmstudio:
         condition: service_healthy
@@ -127,21 +134,29 @@ services:
     container_name: vscode-workspace
     restart: unless-stopped
     init: true
+    privileged: true
     user: root
     command:
       - bash
       - -lc
-      - "install -d -o vscode -g vscode /home/vscode/.vscode-server /home/vscode/.vscode-server-insiders /home/vscode/.config/Code; chown vscode:vscode /home/vscode/.vscode-server /home/vscode/.vscode-server-insiders /home/vscode/.config/Code; exec sleep infinity"
+      - "install -d -o vscode -g vscode /home/vscode/.vscode-server /home/vscode/.vscode-server-insiders /home/vscode/.config/Code; chown vscode:vscode /home/vscode/.vscode-server /home/vscode/.vscode-server-insiders /home/vscode/.config/Code; configure-codex-provider /home/vscode/.codex/config.toml; configure-codex-provider --chutes-profile /home/vscode/.codex/chutes.config.toml; configure-codex-provider --openrouter-profile /home/vscode/.codex/openrouter.config.toml; dockerd --host=unix:///var/run/docker.sock --storage-driver=vfs >/var/log/dockerd.log 2>&1 & for i in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done; docker info >/dev/null 2>&1 || { cat /var/log/dockerd.log; exit 1; }; exec sleep infinity"
     volumes:
       - ./workspaces:/workspaces
       - vscode_server:/home/vscode/.vscode-server
       - vscode_server_insiders:/home/vscode/.vscode-server-insiders
       - vscode_data:/home/vscode/.config/Code
       - vscode_memory:/home/vscode/.mcp-memory
+      - vscode_dind:/var/lib/docker
     environment:
       - LM_STUDIO_BASE_URL=http://lmstudio:1234/v1
       - OPENAI_BASE_URL=http://litellm:4000/v1
       - OPENAI_API_KEY=lm-studio
+      - CODEX_LITELLM_API_KEY=lm-studio
+      - CHUTES_CONTEXT_WINDOW=${CHUTES_CONTEXT_WINDOW:-65536}
+      - LOCAL_CONTEXT_WINDOW=${LOCAL_CONTEXT_WINDOW:-65536}
+      - OPENROUTER_CONTEXT_WINDOW=${OPENROUTER_CONTEXT_WINDOW:-98304}
+      - LLM_PROVIDER=${LLM_PROVIDER:-chutes}
+      - DOCKER_HOST=unix:///var/run/docker.sock
     depends_on:
       lmstudio:
         condition: service_healthy
@@ -182,14 +197,67 @@ services:
     container_name: codex-cli-workspace
     restart: unless-stopped
     init: true
-    command: sleep infinity
+    user: root
+    privileged: true
+    command:
+      - bash
+      - -lc
+      - "configure-codex-provider /home/codex/.codex/config.toml; configure-codex-provider --chutes-profile /home/codex/.codex/chutes.config.toml; configure-codex-provider --openrouter-profile /home/codex/.codex/openrouter.config.toml; dockerd --host=unix:///var/run/docker.sock --storage-driver=vfs >/var/log/dockerd.log 2>&1 & for i in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done; docker info >/dev/null 2>&1 || { cat /var/log/dockerd.log; exit 1; }; exec sleep infinity"
     security_opt:
       - seccomp:unconfined
     volumes:
       - ./workspaces:/workspaces
       - codex_cli_workspace_memory:/home/codex/.mcp-memory
+      - codex_dind:/var/lib/docker
     environment:
       - CODEX_LM_STUDIO_API_KEY=lm-studio
+      - CODEX_LITELLM_API_KEY=lm-studio
+      - CHUTES_CONTEXT_WINDOW=${CHUTES_CONTEXT_WINDOW:-65536}
+      - LOCAL_CONTEXT_WINDOW=${LOCAL_CONTEXT_WINDOW:-65536}
+      - OPENROUTER_CONTEXT_WINDOW=${OPENROUTER_CONTEXT_WINDOW:-98304}
+      - LLM_PROVIDER=${LLM_PROVIDER:-chutes}
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - HOME=/home/codex
+    depends_on:
+      lmstudio:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      searxng:
+        condition: service_healthy
+    networks:
+      - all-net
+
+  # Claude Code CLI workspace: mirrors the Codex development image and routes
+  # Anthropic-format Messages API traffic through LiteLLM. Its default model is
+  # selected by the same LLM_PROVIDER setting used by Codex and VS Code.
+  claude-code:
+    build:
+      context: .
+      dockerfile: Dockerfile.claude-code
+    container_name: claude-code-cli-workspace
+    restart: unless-stopped
+    init: true
+    privileged: true
+    command:
+      - bash
+      - -lc
+      - "test -f /home/claude/.claude.json || printf '{}\\n' > /home/claude/.claude.json; configure-claude-provider /home/claude/.claude/settings.json; configure-claude-mcp /home/claude/.claude.json; sudo dockerd --host=unix:///var/run/docker.sock --storage-driver=vfs >/tmp/claude-dockerd.log 2>&1 & for i in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done; docker info >/dev/null 2>&1 || { cat /tmp/claude-dockerd.log; exit 1; }; exec sleep infinity"
+    security_opt:
+      - seccomp:unconfined
+    volumes:
+      - ./workspaces:/workspaces
+      - claude_code_home:/home/claude
+      - claude_code_dind:/var/lib/docker
+    environment:
+      - CHUTES_CONTEXT_WINDOW=${CHUTES_CONTEXT_WINDOW:-65536}
+      - LOCAL_CONTEXT_WINDOW=${LOCAL_CONTEXT_WINDOW:-65536}
+      - OPENROUTER_CONTEXT_WINDOW=${OPENROUTER_CONTEXT_WINDOW:-98304}
+      - LLM_PROVIDER=${LLM_PROVIDER:-chutes}
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - HOME=/home/claude
     depends_on:
       lmstudio:
         condition: service_healthy
@@ -215,3 +283,7 @@ volumes:
   vscode_server:
   vscode_server_insiders:
   vscode_data:
+  codex_dind:
+  vscode_dind:
+  claude_code_home:
+  claude_code_dind:

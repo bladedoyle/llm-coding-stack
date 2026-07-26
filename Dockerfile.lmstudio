@@ -21,10 +21,11 @@ RUN curl -fsSL https://lmstudio.ai/install.sh | bash
 
 EXPOSE 1234
 
-# Preload the coding model with a large context window. JIT-loaded models
-# default to a 4096-token context, which is too small for Codex's prompt.
+# Preload the coding model with a bounded context and a single concurrent
+# prediction to keep GPU/host memory pressure within the available budget.
 ENV LMS_DEFAULT_MODEL=openai/gpt-oss-20b
-ENV LMS_DEFAULT_CONTEXT_LENGTH=32768
+ENV LMS_DEFAULT_CONTEXT_LENGTH=65536
+ENV LMS_DEFAULT_PARALLEL=1
 ENV LMS_EMBEDDING_MODEL=text-embedding-nomic-embed-text-v1.5
 
 # Startup sequence:
@@ -40,8 +41,8 @@ CMD ["bash", "-lc", "\
   (lms get ${LMS_DEFAULT_MODEL} --yes || true) && \
   (lms get ${LMS_EMBEDDING_MODEL} --yes || true) && \
   (for i in 1 2 3 4 5 6; do \
-     lms load ${LMS_DEFAULT_MODEL} -c ${LMS_DEFAULT_CONTEXT_LENGTH} --gpu max -y && break; \
+     lms load ${LMS_DEFAULT_MODEL} -c ${LMS_DEFAULT_CONTEXT_LENGTH} --parallel ${LMS_DEFAULT_PARALLEL} --gpu max -y && break; \
      echo \"chat model load failed, retry $i\"; sleep 5; \
    done) && \
-  (lms load ${LMS_EMBEDDING_MODEL} -y || true) && \
+  (lms load ${LMS_EMBEDDING_MODEL} --gpu max -y || true) && \
   lms log stream"]

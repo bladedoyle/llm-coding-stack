@@ -1,6 +1,54 @@
 {
   "models": [
     {
+      "slug": "openrouter/model", "display_name": "Configured OpenRouter Model",
+      "description": "Model selected by OPENROUTER_MODEL through OpenRouter and LiteLLM",
+      "prefer_websockets": false, "support_verbosity": false, "default_verbosity": "low",
+      "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image",
+      "input_modalities": ["text"], "supports_image_detail_original": false,
+      "truncation_policy": { "mode": "tokens", "limit": 10000 },
+      "supports_parallel_tool_calls": true,
+      "context_window": 262144, "max_context_window": 262144, "auto_compact_token_limit": null,
+      "reasoning_summary_format": "none", "default_reasoning_summary": "none",
+      "default_reasoning_level": "low",
+      "supported_reasoning_levels": [
+        { "effort": "low", "description": "Provider-dependent reasoning" },
+        { "effort": "medium", "description": "Provider-dependent reasoning" }
+      ],
+      "shell_type": "shell_command", "visibility": "list",
+      "minimal_client_version": "0.0.0", "supported_in_api": false,
+      "availability_nux": null, "upgrade": null, "priority": 1,
+      "base_instructions": "",
+      "model_messages": { "instructions_template": "", "instructions_variables": {} },
+      "experimental_supported_tools": [], "available_in_plans": [],
+      "supports_search_tool": false, "service_tiers": [], "additional_speed_tiers": [],
+      "supports_reasoning_summaries": false
+    },
+    {
+      "slug": "chutes/model-responses", "display_name": "Chutes Model (via LiteLLM)",
+      "description": "Model selected by CHUTES_MODEL through LiteLLM and Chutes/Bittensor",
+      "prefer_websockets": false, "support_verbosity": false, "default_verbosity": "low",
+      "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image",
+      "input_modalities": ["text"], "supports_image_detail_original": false,
+      "truncation_policy": { "mode": "tokens", "limit": 10000 },
+      "supports_parallel_tool_calls": true,
+      "context_window": 163840, "max_context_window": 163840, "auto_compact_token_limit": null,
+      "reasoning_summary_format": "none", "default_reasoning_summary": "none",
+      "default_reasoning_level": "low",
+      "supported_reasoning_levels": [
+        { "effort": "low", "description": "Provider-dependent reasoning" },
+        { "effort": "medium", "description": "Provider-dependent reasoning" }
+      ],
+      "shell_type": "shell_command", "visibility": "list",
+      "minimal_client_version": "0.0.0", "supported_in_api": false,
+      "availability_nux": null, "upgrade": null, "priority": 1,
+      "base_instructions": "",
+      "model_messages": { "instructions_template": "", "instructions_variables": {} },
+      "experimental_supported_tools": [], "available_in_plans": [],
+      "supports_search_tool": false, "service_tiers": [], "additional_speed_tiers": [],
+      "supports_reasoning_summaries": false
+    },
+    {
       "slug": "openai/gpt-oss-20b", "display_name": "GPT OSS 20B",
       "description": "Local GPT OSS 20B via LM Studio",
       "prefer_websockets": false, "support_verbosity": false, "default_verbosity": "low",
