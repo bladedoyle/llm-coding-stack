@@ -59,8 +59,10 @@ services:
       - all-net
 
   # Open WebUI: web chat front-end (port 3000). Talks to LiteLLM for LLM
-  # responses, Kokoro for text-to-speech, and Whisper for speech-to-text.
+  # responses and can use the separately enabled Kokoro service for
+  # text-to-speech. Enable with the "webui" Compose profile.
   open-webui:
+    profiles: ["webui"]
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
     ports:
@@ -82,8 +84,6 @@ services:
     depends_on:
       litellm:
         condition: service_healthy
-      kokoro:
-        condition: service_started
     restart: unless-stopped
     networks:
       - all-net
@@ -110,8 +110,10 @@ services:
       - all-net
 
   # Kokoro: GPU text-to-speech service (port 8880), OpenAI-compatible TTS API
-  # consumed by Open WebUI for voice output.
+  # consumed by Open WebUI for voice output. Enable with the "voice" Compose
+  # profile; it can also run independently as an API.
   kokoro:
+    profiles: ["voice"]
     image: ghcr.io/remsky/kokoro-fastapi-gpu:v0.1.4
     container_name: kokoro
     runtime: nvidia

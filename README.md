@@ -1,18 +1,20 @@
 # local-llm-stack
 
-A complete, GPU-accelerated local development stack using Docker Compose. This project provides a private LLM environment for chatting and autonomous coding agents.
+A configurable, GPU-accelerated local development stack using Docker Compose.
+The programming environment runs by default; chat and voice services are
+optional.
 
 ## Features
 - **LM Studio**: Local model server (gpt-oss-20b) with GPU acceleration.
 - **LiteLLM**: OpenAI-compatible gateway for multi-client routing.
 - **Chutes / Bittensor**: Optional cloud model pool, available to Codex and
   Open WebUI alongside the local model.
-- **Open WebUI**: Rich web interface for chat.
+- **Open WebUI**: Optional rich web interface for chat.
 - **Codex CLI**: Autonomous coding agent for terminal-based tasks.
 - **Claude Code CLI**: Anthropic's coding agent routed through the same local
   LiteLLM providers as Codex.
 - **VS Code Workspace**: Pre-configured devcontainer with full toolchain and agents.
-- **Kokoro TTS**: High-quality local text-to-speech.
+- **Kokoro TTS**: Optional high-quality local text-to-speech.
 - **Qdrant & SearXNG**: Vector memory and web search for agents.
 
 ## Getting Started
@@ -29,16 +31,52 @@ A complete, GPU-accelerated local development stack using Docker Compose. This p
 git clone <repo-url>
 cd local-llm-stack
 
-# Build and start all services
+# Create your local configuration
+cp .env.example .env
+
+# Build and start the programming stack
 docker compose up -d
 ```
 
-To enable the optional Chutes/Bittensor route, create your local secret file
-before starting the stack:
-```bash
-cp .env.example .env
-# Edit .env and set CHUTES_API_KEY to your cpk_ key.
+The default programming stack includes LM Studio, LiteLLM, the VS Code
+workspace, Codex CLI, Claude Code CLI, Qdrant, and SearXNG. Select optional
+non-programming components in `.env` with the comma-separated
+`COMPOSE_PROFILES` setting:
+
+```dotenv
+# Programming stack only
+COMPOSE_PROFILES=
+
+# Add the browser chat interface
+COMPOSE_PROFILES=webui
+
+# Add browser chat and GPU text-to-speech
+COMPOSE_PROFILES=webui,voice
 ```
+
+The two optional profiles are independent. `voice` can be enabled without
+`webui` when you only need Kokoro's API. If `webui` is enabled without `voice`,
+chat and speech-to-text remain available, but text-to-speech is unavailable
+until the `voice` profile is started.
+
+You can override `.env` for a single command:
+
+```bash
+docker compose --profile webui up -d
+docker compose --profile webui --profile voice up -d
+```
+
+Changing `COMPOSE_PROFILES` controls future starts but does not stop an
+optional container that is already running. To apply a reduced selection,
+stop the whole project (including every profile) and start it again:
+
+```bash
+docker compose --profile "*" down
+docker compose up -d
+```
+
+To enable the optional Chutes/Bittensor route, edit `.env` and replace
+`CHUTES_API_KEY` with your `cpk_` key.
 
 Set `CHUTES_MODEL` in `.env` to the exact Chutes model ID you want, for example
 `deepseek-ai/DeepSeek-V3.2-TEE`. Codex routes through the local LiteLLM gateway,
@@ -66,7 +104,8 @@ backed by the model selected with `OPENROUTER_MODEL` in `.env`. Set
 `tencent/hy3:free`; its OpenRouter Codex context default is
 `OPENROUTER_CONTEXT_WINDOW=98304`.
 
-On first start, the `lmstudio` container will automatically pull the `gpt-oss-20b` model (~8-9 GB). You can track progress with:
+On first start, the `lmstudio` container will automatically pull the
+`gpt-oss-20b` model (~8-9 GB). You can track progress with:
 ```bash
 docker compose logs -f lmstudio
 ```

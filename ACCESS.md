@@ -3,17 +3,26 @@
 ## Start / stop
 
 ```bash
-docker compose up -d       # start all services
-docker compose down        # stop all (data volumes preserved)
-docker compose ps          # check status
+docker compose up -d                 # start the programming stack
+docker compose --profile webui up -d # also start browser chat
+docker compose --profile "*" down    # stop every profile (data preserved)
+docker compose ps                    # check status
 ```
+
+Set `COMPOSE_PROFILES=webui`, `COMPOSE_PROFILES=voice`, or
+`COMPOSE_PROFILES=webui,voice` in `.env` to make optional services part of
+normal `docker compose up` commands. Stop all profiles before restarting if
+you remove a profile from that setting.
 
 ---
 
-## 1. Open WebUI — chat-bot interface
+## 1. Open WebUI — optional chat-bot interface
 Browser UI for chatting with the local model:
 
 **http://localhost:3000**
+
+Enable the `webui` profile before opening this URL. Enable the independent
+`voice` profile as well for Kokoro text-to-speech.
 
 ---
 
@@ -148,10 +157,11 @@ Browser-accessible metasearch UI. Also queried automatically by the `searxng` MC
 
 ---
 
-## Kokoro TTS
+## Kokoro TTS — optional
 **http://localhost:8880** (localhost only)
 
-Used automatically by Open WebUI for text-to-speech. No direct interaction needed.
+Enable the `voice` profile to run it. Open WebUI uses it automatically for
+text-to-speech when it is available.
 
 ---
 
