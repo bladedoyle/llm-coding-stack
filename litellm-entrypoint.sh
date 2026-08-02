@@ -3,7 +3,7 @@ set -eu
 
 set -- --config /app/config.yaml --port 4000 --host 0.0.0.0
 
-case "${LITELLM_DEBUG_MODE:-detailed}" in
+case "${LITELLM_DEBUG_MODE:-off}" in
   off)
     ;;
   debug)

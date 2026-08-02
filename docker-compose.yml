@@ -36,7 +36,7 @@ services:
     volumes:
       - ./litellm_config.yaml:/app/config.yaml:ro
       - ./litellm-entrypoint.sh:/app/litellm-entrypoint.sh:ro
-    # See LITELLM_DEBUG_MODE in .env. Keep detailed gateway logs local.
+    # See LITELLM_DEBUG_MODE in .env. Keep debug gateway logs local.
     entrypoint: ["/bin/sh", "/app/litellm-entrypoint.sh"]
     environment:
       - LITELLM_MASTER_KEY=lm-studio
@@ -44,7 +44,7 @@ services:
       - CHUTES_MODEL=${CHUTES_MODEL:-deepseek-ai/DeepSeek-V3.2-TEE}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - OPENROUTER_MODEL=${OPENROUTER_MODEL:-tencent/hy3:free}
-      - LITELLM_DEBUG_MODE=${LITELLM_DEBUG_MODE:-detailed}
+      - LITELLM_DEBUG_MODE=${LITELLM_DEBUG_MODE:-off}
     depends_on:
       lmstudio:
         condition: service_healthy

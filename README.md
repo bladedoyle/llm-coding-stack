@@ -80,7 +80,7 @@ To enable the optional Chutes/Bittensor route, edit `.env` and replace
 
 Set `CHUTES_MODEL` in `.env` to the exact Chutes model ID you want, for example
 `deepseek-ai/DeepSeek-V3.2-TEE`. Codex routes through the local LiteLLM gateway,
-which is configured to log request and response payloads for local inspection.
+which can log request and response payloads for local inspection.
 Set `CHUTES_CONTEXT_WINDOW` there as well; `65536` is the default. The key is
 not stored in the repository or Docker images.
 
@@ -94,7 +94,8 @@ The same selector configures Claude Code. Recreate the `workspace`, `codex`,
 and `claude-code` services after changing the selector.
 
 Use `LITELLM_DEBUG_MODE=off`, `debug`, or `detailed` in `.env` to control
-LiteLLM gateway logging. `detailed` logs may contain prompt and tool data.
+LiteLLM gateway logging. Logging defaults to `off`; `detailed` logs may contain
+prompt and tool data.
 
 The Chutes Codex provider retries interrupted response streams up to 50 times.
 

@@ -1,6 +1,15 @@
 #!/bin/sh
 set -eu
 
+require_exact_setting() {
+  expected_setting="$1"
+  match_count=$(grep -Fxc "$expected_setting" "$config_file" || true)
+  if [ "$match_count" -ne 1 ]; then
+    echo "Failed to apply Codex setting in $config_file: $expected_setting" >&2
+    exit 1
+  fi
+}
+
 if [ "${1:-}" = "--chutes-profile" ] || [ "${1:-}" = "--openrouter-profile" ]; then
   config_file="${2:?usage: configure-codex-provider.sh --<provider>-profile /path/to/config.toml}"
   if [ "$1" = "--chutes-profile" ]; then
@@ -23,6 +32,7 @@ if [ "${1:-}" = "--chutes-profile" ] || [ "${1:-}" = "--openrouter-profile" ]; t
   fi
 
   sed -i -E "s|^model_context_window = [0-9]+$|model_context_window = $context_window|" "$config_file"
+  require_exact_setting "model_context_window = $context_window"
   exit 0
 fi
 
@@ -33,7 +43,7 @@ case "$provider" in
   chutes)
     model="chutes/model-responses"
     model_provider="chutes"
-    context_window="${CHUTES_CONTEXT_WINDOW:-98304}"
+    context_window="${CHUTES_CONTEXT_WINDOW:-65536}"
     ;;
   local)
     model="openai/gpt-oss-20b"
@@ -70,3 +80,7 @@ sed -i -E \
   -e "s|^model = .*|model = \"$model\"|" \
   -e "s|^model_context_window = [0-9]+$|model_context_window = $context_window|" \
   "$config_file"
+
+require_exact_setting "model_provider = \"$model_provider\""
+require_exact_setting "model = \"$model\""
+require_exact_setting "model_context_window = $context_window"

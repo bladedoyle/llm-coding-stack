@@ -93,6 +93,9 @@ COPY model-catalog.local.json /home/${USERNAME}/.codex/model-catalogs/local.json
 RUN printf '# Avoid reserved names ("ollama", "oss", "lmstudio") -- they hardcode\n\
 # localhost checks and ignore base_url. Use a custom name instead.\n\
 # LM Studio supports the OpenAI-compatible /v1/responses endpoint used by Codex.\n\
+model_provider = "chutes"\n\
+model = "chutes/model-responses"\n\
+model_context_window = 65536\n\
 model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n\
 model_reasoning_effort = "max"\n\
 \n\

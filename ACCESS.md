@@ -118,7 +118,7 @@ the VS Code Codex plugin default, set `LLM_PROVIDER=openrouter` in `.env` before
 recreating the workspace.
 
 Codex Responses-API traffic is routed as `chutes/model-responses`. View its
-request and response payloads with:
+request and response payloads after enabling `detailed` logging with:
 ```bash
 docker compose logs -f litellm
 ```
