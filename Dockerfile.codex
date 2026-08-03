@@ -95,7 +95,6 @@ RUN printf '# Avoid reserved names ("ollama", "oss", "lmstudio") -- they hardcod
 # LM Studio supports the OpenAI-compatible /v1/responses endpoint used by Codex.\n\
 model_provider = "chutes"\n\
 model = "chutes/model-responses"\n\
-model_context_window = 65536\n\
 model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n\
 model_reasoning_effort = "max"\n\
 \n\
@@ -169,16 +168,14 @@ EMBEDDING_PROVIDER = "fastembed"\n\
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"\n\
 FASTEMBED_CACHE_PATH = "/home/codex/.cache/fastembed"\n' >> /home/${USERNAME}/.codex/config.toml \
  && printf 'model_provider = "local-lm-studio"\n\
-model = "openai/gpt-oss-20b"\n\
+model = "local/model"\n\
 model_context_window = 65536\n\
 model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n' > /home/${USERNAME}/.codex/lm-studio.config.toml \
  && printf 'model_provider = "chutes"\n\
 model = "chutes/model-responses"\n\
-model_context_window = 65536\n\
 model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n' > /home/${USERNAME}/.codex/chutes.config.toml \
  && printf 'model_provider = "openrouter"\n\
 model = "openrouter/model"\n\
-model_context_window = 98304\n\
 model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n' > /home/${USERNAME}/.codex/openrouter.config.toml \
  && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.codex \
  && mkdir -p /home/${USERNAME}/.mcp-memory \

@@ -83,7 +83,6 @@ model = "chutes/model-responses"\n\
 model_catalog_json = "/home/vscode/.codex/model-catalogs/local.json"\n\
 model_reasoning_effort = "max"\n\
 personality = "pragmatic"\n\
-model_context_window = 65536\n\
 \n\
 [model_providers.local-lm-studio]\n\
 name = "Local LM Studio"\n\
@@ -153,17 +152,16 @@ EMBEDDING_PROVIDER = "fastembed"\n\
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"\n\
 FASTEMBED_CACHE_PATH = "/home/vscode/.cache/fastembed"\n' > /home/${USERNAME}/.codex/config.toml \
  && printf 'model_provider = "local-lm-studio"\n\
-model = "openai/gpt-oss-20b"\n\
+model = "local/model"\n\
+model_context_window = 65536\n\
 model_catalog_json = "/home/vscode/.codex/model-catalogs/local.json"\n' \
      > /home/${USERNAME}/.codex/lm-studio.config.toml \
  && printf 'model_provider = "chutes"\n\
 model = "chutes/model-responses"\n\
-model_context_window = 65536\n\
 model_catalog_json = "/home/vscode/.codex/model-catalogs/local.json"\n' \
      > /home/${USERNAME}/.codex/chutes.config.toml \
  && printf 'model_provider = "openrouter"\n\
 model = "openrouter/model"\n\
-model_context_window = 98304\n\
 model_catalog_json = "/home/vscode/.codex/model-catalogs/local.json"\n' \
      > /home/${USERNAME}/.codex/openrouter.config.toml
 

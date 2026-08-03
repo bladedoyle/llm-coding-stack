@@ -1,17 +1,4 @@
 model_list:
-  # Chat model — both aliases so clients using either name work
-  - model_name: gpt-oss-20b
-    litellm_params:
-      model: openai/openai/gpt-oss-20b
-      api_base: http://lmstudio:1234/v1
-      api_key: lm-studio
-
-  - model_name: openai/gpt-oss-20b
-    litellm_params:
-      model: openai/openai/gpt-oss-20b
-      api_base: http://lmstudio:1234/v1
-      api_key: lm-studio
-
   # Chutes is a Bittensor-backed, OpenAI-compatible cloud inference gateway.
   # CHUTES_MODEL is the exact Chutes model ID selected in .env.
   - model_name: chutes/model
@@ -48,7 +35,7 @@ model_list:
       api_key: lm-studio
 
 litellm_settings:
-  # Strip unknown params instead of erroring — LM Studio ignores many OpenAI fields
+  # Strip provider-specific parameters that upstream endpoints do not accept.
   drop_params: true
 
 general_settings:
