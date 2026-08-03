@@ -8,6 +8,7 @@ RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        docker.io \
         git \
         procps \
         bubblewrap \
@@ -20,6 +21,8 @@ RUN apt-get update \
         build-essential \
         clang \
         golang \
+        rustc \
+        cargo \
         make \
         cmake \
         pkg-config \
@@ -40,6 +43,7 @@ RUN npm install -g \
         @modelcontextprotocol/server-filesystem \
         @modelcontextprotocol/server-memory \
         @modelcontextprotocol/server-sequential-thinking \
+        @treedy/typescript-lsp-mcp \
         mcp-searxng
 
 # uv provides the Python-based MCP servers (git, fetch). Install uv and the
@@ -51,6 +55,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh \
  && uv tool install --python /usr/bin/python3 mcp-server-git \
  && uv tool install --python /usr/bin/python3 mcp-server-fetch \
  && uv tool install --python /usr/bin/python3 mcp-server-qdrant \
+ && uv tool install --python /usr/bin/python3 pytest==9.1.1 \
  && chmod -R a+rX /opt/uv
 
 RUN userdel -r node 2>/dev/null || true \
@@ -58,6 +63,7 @@ RUN userdel -r node 2>/dev/null || true \
  && groupadd --gid ${USER_GID} ${USERNAME} \
  && useradd --uid ${USER_UID} --gid ${USER_GID} --shell /bin/bash \
             --create-home ${USERNAME} \
+ && usermod -aG docker ${USERNAME} \
  && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
  && chmod 0440 /etc/sudoers.d/${USERNAME}
 
@@ -74,6 +80,9 @@ ENV LM_STUDIO_BASE_URL=http://lmstudio:1234/v1
 
 RUN mkdir -p /home/${USERNAME}/.codex/model-catalogs
 
+COPY configure-codex-provider.sh /usr/local/bin/configure-codex-provider
+RUN chmod 0755 /usr/local/bin/configure-codex-provider
+
 # Copy pre-built catalog with all fields the upstream schema requires.
 # Edit model-catalog.local.json in the build context to add models.
 COPY model-catalog.local.json /home/${USERNAME}/.codex/model-catalogs/local.json
@@ -84,13 +93,32 @@ COPY model-catalog.local.json /home/${USERNAME}/.codex/model-catalogs/local.json
 RUN printf '# Avoid reserved names ("ollama", "oss", "lmstudio") -- they hardcode\n\
 # localhost checks and ignore base_url. Use a custom name instead.\n\
 # LM Studio supports the OpenAI-compatible /v1/responses endpoint used by Codex.\n\
+model_provider = "chutes"\n\
+model = "chutes/model-responses"\n\
 model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n\
+model_reasoning_effort = "max"\n\
 \n\
 [model_providers.local-lm-studio]\n\
 name = "Local LM Studio"\n\
 base_url = "http://lmstudio:1234/v1"\n\
 env_key = "CODEX_LM_STUDIO_API_KEY"\n\
-wire_api = "responses"\n' > /home/${USERNAME}/.codex/config.toml \
+wire_api = "responses"\n\
+\n\
+# Chutes traffic is routed through LiteLLM so this gateway can log and inspect\n\
+# all Codex requests. Only LiteLLM receives the Chutes API key.\n\
+[model_providers.chutes]\n\
+name = "Chutes (Bittensor via LiteLLM)"\n\
+base_url = "http://litellm:4000/v1"\n\
+env_key = "CODEX_LITELLM_API_KEY"\n\
+wire_api = "responses"\n\
+stream_max_retries = 50\n\
+\n\
+[model_providers.openrouter]\n\
+name = "OpenRouter via LiteLLM"\n\
+base_url = "http://litellm:4000/v1"\n\
+env_key = "CODEX_LITELLM_API_KEY"\n\
+wire_api = "responses"\n\
+stream_max_retries = 50\n' > /home/${USERNAME}/.codex/config.toml \
  && printf '\n\
 # Common MCP servers enabled for the Codex agent. All are pre-installed in the\n\
 # image so they start without network access.\n\
@@ -118,6 +146,10 @@ MEMORY_FILE_PATH = "/home/codex/.mcp-memory/memory.jsonl"\n\
 command = "mcp-server-sequential-thinking"\n\
 startup_timeout_sec = 60\n\
 \n\
+[mcp_servers.code-completion]\n\
+command = "typescript-lsp-mcp"\n\
+startup_timeout_sec = 60\n\
+\n\
 [mcp_servers.searxng]\n\
 command = "mcp-searxng"\n\
 startup_timeout_sec = 60\n\
@@ -136,8 +168,15 @@ EMBEDDING_PROVIDER = "fastembed"\n\
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"\n\
 FASTEMBED_CACHE_PATH = "/home/codex/.cache/fastembed"\n' >> /home/${USERNAME}/.codex/config.toml \
  && printf 'model_provider = "local-lm-studio"\n\
-model = "openai/gpt-oss-20b"\n\
+model = "local/model"\n\
+model_context_window = 65536\n\
 model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n' > /home/${USERNAME}/.codex/lm-studio.config.toml \
+ && printf 'model_provider = "chutes"\n\
+model = "chutes/model-responses"\n\
+model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n' > /home/${USERNAME}/.codex/chutes.config.toml \
+ && printf 'model_provider = "openrouter"\n\
+model = "openrouter/model"\n\
+model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n' > /home/${USERNAME}/.codex/openrouter.config.toml \
  && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.codex \
  && mkdir -p /home/${USERNAME}/.mcp-memory \
  && chown ${USERNAME}:${USERNAME} /home/${USERNAME}/.mcp-memory \

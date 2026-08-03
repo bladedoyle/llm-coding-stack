@@ -3,24 +3,20 @@
 ## Start / stop
 
 ```bash
-docker compose up -d       # start all services
-docker compose down        # stop all (data volumes preserved)
-docker compose ps          # check status
+docker compose up -d   # start the coding stack
+docker compose down    # stop the stack (data preserved)
+docker compose ps      # check status
 ```
 
----
-
-## 1. Open WebUI — chat-bot interface
-Browser UI for chatting with the local model:
-
-**http://localhost:3000**
-
----
-
-## 2. Codex CLI — autonomous coding agent
+## 1. Codex CLI — autonomous coding agent
 
 ```bash
 docker compose exec codex bash -c "cd /workspaces/myProject; codex --profile lm-studio"
+```
+
+Use your Chutes/Bittensor model pool instead:
+```bash
+docker compose exec codex bash -c "cd /workspaces/myProject; codex --profile chutes"
 ```
 
 Non-interactive one-shot:
@@ -35,7 +31,7 @@ docker compose exec codex codex mcp list
 
 ---
 
-## 3. VS Code with Codex — IDE coding workspace
+## 2. VS Code with Codex — IDE coding workspace
 
 1. Open VS Code on the host.
 2. Install the **Dev Containers** extension (`ms-vscode-remote.remote-containers`) if not already installed.
@@ -46,6 +42,51 @@ VS Code attaches to the `vscode-workspace` container. The projects are at `/work
 Codex also works from the integrated terminal inside the container:
 ```bash
 codex --profile lm-studio
+```
+
+The VS Code Codex plugin defaults to the `CHUTES_MODEL` configured in `.env`,
+routed through LiteLLM and Chutes. For the terminal, run
+`codex --profile chutes`.
+
+---
+
+## 3. Claude Code CLI
+
+Claude Code uses the same `LLM_PROVIDER` value as Codex and VS Code:
+`chutes`, `local`, or `openrouter`. Start it in a project with:
+
+```bash
+docker compose exec claude-code bash -lc "cd /workspaces/myProject; claude"
+```
+
+For a non-interactive one-shot:
+
+```bash
+docker compose exec claude-code bash -lc \
+  "cd /workspaces/myProject; claude -p 'your task here'"
+```
+
+For example, start the Claude workspace container, open a shell in it, and run
+Claude Code against the included `hello_world` project:
+
+```bash
+docker compose up -d claude-code
+docker compose exec claude-code bash
+cd /workspaces/hello_world
+claude
+```
+
+Projects under the host's `workspaces/` directory appear at `/workspaces` in
+the container, so edits made during the session remain available on the host.
+
+With `LLM_PROVIDER=local`, Claude Code sends Anthropic Messages API requests
+directly to LM Studio at `http://lmstudio:1234`. Chutes and OpenRouter traffic
+goes through LiteLLM. After changing `LLM_PROVIDER`, recreate only this CLI
+container and LM Studio. Recreating LM Studio applies the corresponding local
+LLM load or unload:
+
+```bash
+docker compose up -d --force-recreate lmstudio claude-code
 ```
 
 ---
@@ -60,10 +101,35 @@ codex --profile lm-studio
 curl http://localhost:4000/v1/models -H "Authorization: Bearer lm-studio" | jq .
 ```
 
+Chutes is exposed as `chutes/model` after adding your Chutes key to `.env` and
+restarting LiteLLM.
+
+The model selected by `OPENROUTER_MODEL` is exposed as the stable
+`openrouter/model` route. Set `OPENROUTER_MODEL` and
+`OPENROUTER_API_KEY` in `.env`, then restart LiteLLM.
+
+Use it with Codex from a terminal via `codex --profile openrouter`. To make it
+the VS Code Codex plugin default, set `LLM_PROVIDER=openrouter` in `.env` before
+recreating the workspace.
+
+Codex Responses-API traffic is routed as `chutes/model-responses`. View its
+request and response payloads after enabling `detailed` logging with:
+```bash
+docker compose logs -f litellm
+```
+Those logs can include prompts, source code, tool output, and credentials in
+tool arguments; keep them local and do not share them.
+
+Set `LITELLM_DEBUG_MODE` in `.env` to `off`, `debug`, or `detailed`, then
+recreate LiteLLM to apply it.
+
 ---
 
 ## LM Studio model server
 **http://localhost:1234** (localhost only)
+
+The model selected by `LOCAL_MODEL` is exposed as `local/model`. Recreate this
+service after changing `LOCAL_MODEL` or `LOCAL_CONTEXT_WINDOW` in `.env`.
 
 ```bash
 # Check loaded models
@@ -89,19 +155,11 @@ Browser-accessible metasearch UI. Also queried automatically by the `searxng` MC
 
 ---
 
-## Kokoro TTS
-**http://localhost:8880** (localhost only)
-
-Used automatically by Open WebUI for text-to-speech. No direct interaction needed.
-
----
-
 ## Persistent data
 
 | What | Where |
 |---|---|
 | LM Studio models | `lmstudio_models` volume |
-| Open WebUI chats / settings | `webui_data` volume |
 | Qdrant vectors | `qdrant_data` volume |
 | Codex memory graph | `codex_cli_workspace_memory` volume |
 | Workspace memory graph | `vscode_memory` volume |

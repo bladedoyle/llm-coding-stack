@@ -1,16 +1,31 @@
 model_list:
-  # Chat model — both aliases so clients using either name work
-  - model_name: gpt-oss-20b
+  # Chutes is a Bittensor-backed, OpenAI-compatible cloud inference gateway.
+  # CHUTES_MODEL is the exact Chutes model ID selected in .env.
+  - model_name: chutes/model
     litellm_params:
-      model: openai/openai/gpt-oss-20b
-      api_base: http://lmstudio:1234/v1
-      api_key: lm-studio
+      model: os.environ/CHUTES_MODEL
+      custom_llm_provider: openai
+      api_base: https://llm.chutes.ai/v1
+      api_key: os.environ/CHUTES_API_KEY
+      max_parallel_requests: 5
 
-  - model_name: openai/gpt-oss-20b
+  # Codex uses the OpenAI Responses API. Route that traffic through LiteLLM as
+  # well, while preserving Chutes' separate Responses-compatible endpoint.
+  - model_name: chutes/model-responses
     litellm_params:
-      model: openai/openai/gpt-oss-20b
-      api_base: http://lmstudio:1234/v1
-      api_key: lm-studio
+      model: os.environ/CHUTES_MODEL
+      custom_llm_provider: openai
+      api_base: https://responses.chutes.ai/v1
+      api_key: os.environ/CHUTES_API_KEY
+      max_parallel_requests: 5
+
+  # OPENROUTER_MODEL is the model ID selected in .env. The explicit provider
+  # keeps LiteLLM on OpenRouter's OpenAI-compatible API endpoint.
+  - model_name: openrouter/model
+    litellm_params:
+      model: os.environ/OPENROUTER_MODEL
+      custom_llm_provider: openrouter
+      api_key: os.environ/OPENROUTER_API_KEY
 
   # Embedding model
   - model_name: text-embedding-nomic-embed-text-v1.5
@@ -20,7 +35,7 @@ model_list:
       api_key: lm-studio
 
 litellm_settings:
-  # Strip unknown params instead of erroring — LM Studio ignores many OpenAI fields
+  # Strip provider-specific parameters that upstream endpoints do not accept.
   drop_params: true
 
 general_settings:
