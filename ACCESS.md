@@ -11,17 +11,19 @@ docker compose ps      # check status
 ## 1. Codex CLI — autonomous coding agent
 
 ```bash
-docker compose exec codex bash -c "cd /workspaces/myProject; codex --profile lm-studio"
+docker compose exec codex bash -c "cd /workspaces/myProject; codex"
 ```
 
-Use your Chutes/Bittensor model pool instead:
+Select a model before starting a new session:
 ```bash
-docker compose exec codex bash -c "cd /workspaces/myProject; codex --profile chutes"
+./modelctl use chutes deepseek-ai/DeepSeek-V3.2-TEE
+./modelctl use openrouter tencent/hy3:free
+./modelctl list
 ```
 
 Non-interactive one-shot:
 ```bash
-docker compose exec codex bash -c "cd /workspaces/myProject; codex exec --profile lm-studio --skip-git-repo-check \"your task here\""
+docker compose exec codex bash -c "cd /workspaces/myProject; codex exec --skip-git-repo-check \"your task here\""
 ```
 
 List MCP servers:
@@ -41,19 +43,20 @@ docker compose exec codex codex mcp list
 VS Code attaches to the `vscode-workspace` container. The projects are at `/workspaces/*`.
 Codex also works from the integrated terminal inside the container:
 ```bash
-codex --profile lm-studio
+codex
 ```
 
-The VS Code Codex plugin defaults to the `CHUTES_MODEL` configured in `.env`,
-routed through LiteLLM and Chutes. For the terminal, run
-`codex --profile chutes`.
+The VS Code Codex plugin uses the same selection as the CLI. Run `./modelctl
+use <provider> <model-id>`, then start a new agent session. If the current VS
+Code agent does not pick up the new selection, reload the VS Code window; no
+container recreation is needed.
 
 ---
 
 ## 3. Claude Code CLI
 
-Claude Code uses the same `LLM_PROVIDER` value as Codex and VS Code:
-`chutes`, `local`, or `openrouter`. Start it in a project with:
+Claude Code uses the same selection as Codex and VS Code. Start it in a project
+with:
 
 ```bash
 docker compose exec claude-code bash -lc "cd /workspaces/myProject; claude"
@@ -79,15 +82,15 @@ claude
 Projects under the host's `workspaces/` directory appear at `/workspaces` in
 the container, so edits made during the session remain available on the host.
 
-With `LLM_PROVIDER=local`, Claude Code sends Anthropic Messages API requests
-directly to LM Studio at `http://lmstudio:1234`. Chutes and OpenRouter traffic
-goes through LiteLLM. After changing `LLM_PROVIDER`, recreate only this CLI
-container and LM Studio. Recreating LM Studio applies the corresponding local
-LLM load or unload:
+To select a local model, run:
 
 ```bash
-docker compose up -d --force-recreate lmstudio claude-code
+./modelctl use local openai/gpt-oss-20b
 ```
+
+This starts the optional LM Studio container, then downloads and loads the
+model. It applies to new Claude sessions; do not switch while a local request is
+in progress.
 
 ---
 
@@ -101,19 +104,10 @@ docker compose up -d --force-recreate lmstudio claude-code
 curl http://localhost:4000/v1/models -H "Authorization: Bearer lm-studio" | jq .
 ```
 
-Chutes is exposed as `chutes/model` after adding your Chutes key to `.env` and
-restarting LiteLLM.
-
-The model selected by `OPENROUTER_MODEL` is exposed as the stable
-`openrouter/model` route. Set `OPENROUTER_MODEL` and
-`OPENROUTER_API_KEY` in `.env`, then restart LiteLLM.
-
-Use it with Codex from a terminal via `codex --profile openrouter`. To make it
-the VS Code Codex plugin default, set `LLM_PROVIDER=openrouter` in `.env` before
-recreating the workspace.
-
-Codex Responses-API traffic is routed as `chutes/model-responses`. View its
-request and response payloads after enabling `detailed` logging with:
+LiteLLM accepts `chutes/<model-id>`, `chutes-responses/<model-id>`, and
+`openrouter/<model-id>` routes. `modelctl` chooses the correct route for each
+client API automatically. View request and response payloads after enabling
+`detailed` logging with:
 ```bash
 docker compose logs -f litellm
 ```
@@ -128,8 +122,10 @@ recreate LiteLLM to apply it.
 ## LM Studio model server
 **http://localhost:1234** (localhost only)
 
-The model selected by `LOCAL_MODEL` is exposed as `local/model`. Recreate this
-service after changing `LOCAL_MODEL` or `LOCAL_CONTEXT_WINDOW` in `.env`.
+LM Studio is optional. `./modelctl use local <model-id>` starts it if needed,
+then exposes the selected model as `local/model`. On an NVIDIA host, run the
+selector with `COMPOSE_FILE=docker-compose.yml:docker-compose.nvidia.yml` to
+expose GPUs; otherwise LM Studio runs on CPU.
 
 ```bash
 # Check loaded models

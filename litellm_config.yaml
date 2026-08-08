@@ -1,33 +1,35 @@
 model_list:
-  # Chutes is a Bittensor-backed, OpenAI-compatible cloud inference gateway.
-  # CHUTES_MODEL is the exact Chutes model ID selected in .env.
-  - model_name: chutes/model
+  # Chutes' Chat Completions endpoint is used when Claude Code sends Messages
+  # requests through LiteLLM. The wildcard preserves the requested model ID.
+  - model_name: chutes/*
     litellm_params:
-      model: os.environ/CHUTES_MODEL
-      custom_llm_provider: openai
+      model: openai/*
       api_base: https://llm.chutes.ai/v1
       api_key: os.environ/CHUTES_API_KEY
       max_parallel_requests: 5
 
-  # Codex uses the OpenAI Responses API. Route that traffic through LiteLLM as
-  # well, while preserving Chutes' separate Responses-compatible endpoint.
-  - model_name: chutes/model-responses
+  # Codex uses Chutes' separate Responses-compatible endpoint.
+  - model_name: chutes-responses/*
     litellm_params:
-      model: os.environ/CHUTES_MODEL
-      custom_llm_provider: openai
+      model: openai/*
       api_base: https://responses.chutes.ai/v1
       api_key: os.environ/CHUTES_API_KEY
       max_parallel_requests: 5
 
-  # OPENROUTER_MODEL is the model ID selected in .env. The explicit provider
-  # keeps LiteLLM on OpenRouter's OpenAI-compatible API endpoint.
-  - model_name: openrouter/model
+  # Any OpenRouter model can be selected at request time.
+  - model_name: openrouter/*
     litellm_params:
-      model: os.environ/OPENROUTER_MODEL
-      custom_llm_provider: openrouter
+      model: openrouter/*
       api_key: os.environ/OPENROUTER_API_KEY
 
-  # Embedding model
+  # modelctl loads the selected local model with this stable identifier.
+  - model_name: local/model
+    litellm_params:
+      model: openai/local/model
+      api_base: http://lmstudio:1234/v1
+      api_key: lm-studio
+
+  # The embedding route is available only while the optional local profile runs.
   - model_name: text-embedding-nomic-embed-text-v1.5
     litellm_params:
       model: openai/text-embedding-nomic-embed-text-v1.5

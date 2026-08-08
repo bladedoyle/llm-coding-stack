@@ -3,8 +3,8 @@
 A configurable, GPU-accelerated coding stack using Docker Compose.
 
 ## Features
-- **LM Studio**: Configurable local model server with GPU acceleration.
-- **LiteLLM**: OpenAI-compatible gateway for cloud-provider routing.
+- **LM Studio**: Optional local model server that runs on CPU or NVIDIA GPUs.
+- **LiteLLM**: OpenAI-compatible gateway with runtime provider/model routing.
 - **Chutes / Bittensor**: Optional cloud model pool available to the coding
   agents alongside the local model.
 - **Codex CLI**: Autonomous coding agent for terminal-based tasks.
@@ -16,10 +16,8 @@ A configurable, GPU-accelerated coding stack using Docker Compose.
 ## Getting Started
 
 ### 1. Prerequisites
-- NVIDIA GPU with 11GB or more
 - Docker and Docker Compose.
-- NVIDIA Container Toolkit (for GPU acceleration).
-- [LM Studio](https://lmstudio.ai/) (optional, but the container handles model serving).
+- NVIDIA Container Toolkit only when using local GPU inference.
 
 ### 2. Building and Running
 ```bash
@@ -34,58 +32,64 @@ cp .env.example .env
 docker compose up -d
 ```
 
-The stack includes LM Studio, LiteLLM, the VS Code workspace, Codex CLI,
-Claude Code CLI, Qdrant, and SearXNG.
+The default remote-first stack includes LiteLLM, the VS Code workspace, Codex
+CLI, Claude Code CLI, Qdrant, and SearXNG. LM Studio is disabled until a local
+model is selected.
 
-To enable the optional Chutes/Bittensor route, edit `.env` and replace
-`CHUTES_API_KEY` with your `cpk_` key.
+Set `CHUTES_API_KEY` and/or `OPENROUTER_API_KEY` in `.env` for the providers
+you intend to use. No model ID is fixed at startup.
 
-Set `CHUTES_MODEL` in `.env` to the exact Chutes model ID you want, for example
-`deepseek-ai/DeepSeek-V3.2-TEE`. Codex routes through the local LiteLLM gateway,
-which can log request and response payloads for local inspection.
-The key is not stored in the repository or Docker images.
+## Model selection
 
-LM Studio runs one local prediction at a time. Each Chutes gateway route allows
-up to five concurrent requests in LiteLLM.
+Use the root-level selector to choose the model for new Codex, Claude Code, and
+VS Code Codex sessions:
 
-Set `LLM_PROVIDER=chutes` to make Chutes the VS Code Codex plugin default, or
-`LLM_PROVIDER=local` to use the model selected by `LOCAL_MODEL` instead. Set it to
-`openrouter` to use the model selected by `OPENROUTER_MODEL` via OpenRouter.
-The same selector configures Claude Code. Recreate the `workspace`, `codex`,
-`claude-code`, and `lmstudio` services after changing the selector. Recreating
-LM Studio loads the local LLM when `local` is selected or frees its GPU memory
-when a remote provider is selected.
+```bash
+./modelctl use chutes deepseek-ai/DeepSeek-V3.2-TEE
+./modelctl use openrouter tencent/hy3:free
+./modelctl use local openai/gpt-oss-20b
+./modelctl list
+```
+
+Remote switches take effect immediately for new sessions. Any valid Chutes or
+OpenRouter model ID can be selected; LiteLLM keeps the provider credentials in
+the gateway. The selected provider/model is stored in `model-selection/` and is
+also applied to the running agent containers without recreating them.
+
+`./modelctl list` queries every provider's live model catalogue by default.
+It keeps the provider rank, identifies the provider, and sorts rows by combined
+input/output USD per million tokens, lowest first. Pass a provider or a count
+(for example, `./modelctl list openrouter 20`) to narrow the list.
+
+Selecting a local model starts the optional LM Studio service, downloads the
+model when needed, unloads the previous local LLM, and loads the new one as
+`local/model`. This can take time and should only be done after existing local
+agent sessions have finished.
+
+On NVIDIA hosts, expose GPUs to LM Studio before selecting a local model:
+
+```bash
+COMPOSE_FILE=docker-compose.yml:docker-compose.nvidia.yml \
+  ./modelctl use local openai/gpt-oss-20b
+```
+
+Without the NVIDIA override, local inference uses CPU and works on hosts that
+do not have NVIDIA support. Set `LOCAL_GPU_OFFLOAD` in `.env` to control LM
+Studio's CPU/GPU offload choice, and `LOCAL_CONTEXT_WINDOW` to set the local
+context length.
 
 Use `LITELLM_DEBUG_MODE=off`, `debug`, or `detailed` in `.env` to control
-LiteLLM gateway logging. Logging defaults to `off`; `detailed` logs may contain
-prompt and tool data.
+LiteLLM gateway logging. `detailed` logs may contain prompts, source code, and
+tool data; keep them local.
 
-The Chutes Codex provider retries interrupted response streams up to 50 times.
+### Updating an existing stack
 
-OpenRouter is also available through LiteLLM as `openrouter/model`,
-backed by the model selected with `OPENROUTER_MODEL` in `.env`. Set
-`OPENROUTER_API_KEY` there before using it. The default model is
-`tencent/hy3:free`.
-
-Set `LOCAL_MODEL` to an LM Studio model key such as `openai/gpt-oss-20b` and
-`LOCAL_CONTEXT_WINDOW` to the context length to allocate when loading it. LM
-Studio exposes whichever model is selected through the stable `local/model`
-identifier, so the coding clients do not need model-specific configuration.
-Local traffic goes directly to LM Studio and is not routed through LiteLLM.
-After changing either local setting, recreate only the model server:
+Apply this change once by rebuilding and recreating the gateway and agent
+containers. Subsequent `modelctl` selections do not recreate containers.
 
 ```bash
-docker compose up -d --force-recreate lmstudio
+docker compose up -d --build --force-recreate litellm workspace codex claude-code
 ```
-
-On first start, the `lmstudio` container will automatically pull the selected
-model when `LLM_PROVIDER=local`. Chutes and OpenRouter selections skip both its
-download and load. You can track progress with:
-```bash
-docker compose logs -f lmstudio
-```
-
-Note: The initial model pull can take a long time depending on your network speed.  The download only happens once on initial start. None of the tools will work before the model is downloaded.  Please be patient.
 
 ### 3. Usage
 For detailed instructions on using the Codex and Claude Code CLIs or connecting
@@ -93,13 +97,10 @@ through VS Code, see [ACCESS.md](./ACCESS.md).
 
 ## Common Customizations
 
-### Video Card Device
-By default, the stack is configured to use all available NVIDIA GPUs. If you need to restrict it to specific devices, modify the `NVIDIA_VISIBLE_DEVICES` environment variable in `docker-compose.yml` for the `lmstudio` service:
-
-```yaml
-environment:
-  - NVIDIA_VISIBLE_DEVICES=0  # Use only the first GPU
-```
+### Local GPU acceleration
+Use `docker-compose.nvidia.yml` whenever starting or selecting the local
+profile on an NVIDIA host. Set `NVIDIA_VISIBLE_DEVICES` in that override if you
+need to restrict the exposed devices.
 
 ### Project Directory
 The `vscode-workspace` container mounts a local directory for your code. By default, this is the `./workspaces` folder in the repository root, mapped to `/workspaces` inside the container.

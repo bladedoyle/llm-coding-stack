@@ -14,5 +14,9 @@ __pycache__/
 venv/
 .venv/
 
+# Runtime model selection shared by the agent containers.
+model-selection/*
+!model-selection/.gitkeep
+
 # Logs
 *.log

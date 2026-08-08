@@ -71,10 +71,10 @@ RUN mv /usr/local/bin/claude /usr/local/bin/claude.real \
         > /usr/local/bin/claude \
  && chmod 0755 /usr/local/bin/claude
 
-COPY configure-claude-provider.sh /usr/local/bin/configure-claude-provider
+COPY modelctl-in-container.sh /usr/local/bin/modelctl
 COPY configure-claude-mcp.sh /usr/local/bin/configure-claude-mcp
 RUN chmod 0755 \
-        /usr/local/bin/configure-claude-provider \
+        /usr/local/bin/modelctl \
         /usr/local/bin/configure-claude-mcp \
  && mkdir -p /home/${USERNAME}/.claude /home/${USERNAME}/.mcp-memory \
  && printf '{}\n' > /home/${USERNAME}/.claude.json \

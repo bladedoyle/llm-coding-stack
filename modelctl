@@ -1,0 +1,302 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+stack_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+state_dir="$stack_dir/model-selection"
+state_file="$state_dir/selected.env"
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  ./modelctl use <chutes|openrouter|local> <model-id>
+  ./modelctl current
+  ./modelctl list [chutes|openrouter] [count|all]
+  ./modelctl local list
+
+Examples:
+  ./modelctl use chutes deepseek-ai/DeepSeek-V3.2-TEE
+  ./modelctl use openrouter tencent/hy3:free
+  ./modelctl use local openai/gpt-oss-20b
+  ./modelctl list
+  ./modelctl list chutes all
+EOF
+  exit 2
+}
+
+validate_provider() {
+  case "$1" in
+    chutes|openrouter|local) ;;
+    *) echo "Unknown provider: $1" >&2; exit 2 ;;
+  esac
+}
+
+validate_model() {
+  case "$1" in
+    ''|*[!A-Za-z0-9._:/@+-]*)
+      echo "Model IDs may only contain letters, digits, '.', '_', ':', '/', '@', '+', and '-'." >&2
+      exit 2
+      ;;
+  esac
+}
+
+write_state() {
+  local provider="$1"
+  local model="$2"
+  local temporary_file
+
+  if [[ ! -d "$state_dir" ]]; then
+    install -d -m 0755 "$state_dir"
+  fi
+  temporary_file=$(mktemp "$state_dir/.selected.env.XXXXXX")
+  printf 'MODEL_PROVIDER=%s\nMODEL_ID=%s\n' "$provider" "$model" > "$temporary_file"
+  chmod 0644 "$temporary_file"
+  mv "$temporary_file" "$state_file"
+}
+
+wait_for_lmstudio() {
+  local attempt
+
+  for attempt in $(seq 1 60); do
+    if docker compose exec -T lmstudio curl -fsS http://127.0.0.1:1234/api/v1/models >/dev/null 2>&1; then
+      return
+    fi
+    sleep 1
+  done
+
+  echo "LM Studio did not become ready within 60 seconds." >&2
+  exit 1
+}
+
+select_local_model() {
+  local model="$1"
+  local context_window gpu_offload
+  local -a load_command loaded_instances
+  local instance
+
+  docker compose --profile local up -d lmstudio
+  wait_for_lmstudio
+
+  context_window=$(docker compose exec -T lmstudio printenv LOCAL_CONTEXT_WINDOW)
+  gpu_offload=$(docker compose exec -T lmstudio printenv LOCAL_GPU_OFFLOAD)
+  case "$context_window" in
+    ''|*[!0-9]*)
+      echo "LOCAL_CONTEXT_WINDOW must be a positive integer." >&2
+      exit 2
+      ;;
+  esac
+  if (( context_window < 1 )); then
+    echo "LOCAL_CONTEXT_WINDOW must be greater than zero." >&2
+    exit 2
+  fi
+
+  mapfile -t loaded_instances < <(
+    docker compose exec -T lmstudio lms ps --json \
+      | jq -r '.[] | select(.type == "llm") | .identifier'
+  )
+  for instance in "${loaded_instances[@]}"; do
+    docker compose exec -T lmstudio lms unload "$instance"
+  done
+
+  docker compose exec -T lmstudio lms get "$model" --yes
+  load_command=(
+    lms load "$model"
+    --identifier local/model
+    --context-length "$context_window"
+    --parallel 1
+    --yes
+  )
+  if [[ -n "$gpu_offload" ]]; then
+    load_command+=(--gpu "$gpu_offload")
+  fi
+  docker compose exec -T lmstudio "${load_command[@]}"
+}
+
+apply_to_running_agents() {
+  local service
+
+  for service in workspace codex claude-code; do
+    if [[ -n "$(docker compose ps -q "$service")" ]]; then
+      docker compose exec -T "$service" modelctl apply
+    fi
+  done
+}
+
+parse_list_count() {
+  local requested_count="${1:-10}"
+
+  case "$requested_count" in
+    all)
+      model_list_limit=99999
+      model_list_heading='All'
+      ;;
+    *[!0-9]*|'')
+      echo "Count must be a positive integer or 'all'." >&2
+      exit 2
+      ;;
+    *)
+      model_list_limit=$((10#$requested_count))
+      if (( model_list_limit < 1 )); then
+        echo "Count must be greater than zero." >&2
+        exit 2
+      fi
+      model_list_heading="Top $model_list_limit"
+      ;;
+  esac
+}
+
+fetch_openrouter_models() {
+  curl --fail --silent --show-error --location --max-time 30 \
+    'https://openrouter.ai/api/v1/models?category=programming&sort=coding-high-to-low' \
+    | jq '
+      [.data
+      | to_entries[]
+      | {
+          rank: (.key + 1),
+          provider: "OpenRouter",
+          model: .value.id,
+          input: ((.value.pricing.prompt // "0") | tonumber * 1000000),
+          output: ((.value.pricing.completion // "0") | tonumber * 1000000)
+        }]
+    '
+}
+
+fetch_chutes_models() {
+  curl --fail --silent --show-error --location --max-time 30 \
+    'https://chutes.ai/api/models?type=llm&sort=popularity&limit=100' \
+    | jq '
+      [.items
+      | to_entries[]
+      | {
+          rank: (.key + 1),
+          provider: "Chutes",
+          model: .value.name,
+          input: .value.pricing.input_per_million,
+          output: .value.pricing.output_per_million
+        }]
+    '
+}
+
+parse_list_arguments() {
+  model_list_provider=all
+
+  case $# in
+    0)
+      parse_list_count all
+      ;;
+    1)
+      case "$1" in
+        chutes|openrouter)
+          model_list_provider="$1"
+          parse_list_count all
+          ;;
+        local)
+          echo "Local models are not listed because their pricing is host-specific." >&2
+          exit 2
+          ;;
+        *) parse_list_count "$1" ;;
+      esac
+      ;;
+    2)
+      case "$1" in
+        chutes|openrouter)
+          model_list_provider="$1"
+          parse_list_count "$2"
+          ;;
+        local)
+          echo "Local models are not listed because their pricing is host-specific." >&2
+          exit 2
+          ;;
+        *) echo "Unknown list provider: $1" >&2; exit 2 ;;
+      esac
+      ;;
+    *) usage ;;
+  esac
+}
+
+list_models() {
+  local temporary_dir chutes_process openrouter_process provider_label status
+
+  parse_list_arguments "$@"
+  temporary_dir=$(mktemp -d)
+
+  case "$model_list_provider" in
+    all)
+      fetch_chutes_models > "$temporary_dir/chutes.json" &
+      chutes_process=$!
+      fetch_openrouter_models > "$temporary_dir/openrouter.json" &
+      openrouter_process=$!
+      status=0
+      if ! wait "$chutes_process"; then status=1; fi
+      if ! wait "$openrouter_process"; then status=1; fi
+      if (( status != 0 )); then
+        rm -rf "$temporary_dir"
+        return 1
+      fi
+      jq -s 'add' "$temporary_dir/chutes.json" "$temporary_dir/openrouter.json" > "$temporary_dir/models.json"
+      ;;
+    chutes)
+      fetch_chutes_models > "$temporary_dir/models.json"
+      ;;
+    openrouter)
+      fetch_openrouter_models > "$temporary_dir/models.json"
+      ;;
+  esac
+
+  case "$model_list_provider" in
+    all) provider_label='all providers' ;;
+    chutes) provider_label='Chutes' ;;
+    openrouter) provider_label='OpenRouter' ;;
+  esac
+  printf '%s models from %s, sorted by total token price (lowest first)\n' "$model_list_heading" "$provider_label"
+  printf '%-12s %-6s %-48s %14s %14s %14s\n' 'Provider' 'Rank' 'Model ID' 'Input / 1M' 'Output / 1M' 'Total / 1M'
+  status=0
+  jq -r --argjson limit "$model_list_limit" '
+    def usd_per_million:
+      if . == 0 then "free" else "$\((. * 10000 | round / 10000))" end;
+    sort_by([(.input + .output), .input, .output, .provider, .model])
+    | .[:$limit]
+    | .[]
+    | [.provider, .rank, .model, (.input | usd_per_million), (.output | usd_per_million), ((.input + .output) | usd_per_million)]
+    | @tsv
+  ' "$temporary_dir/models.json" \
+    | while IFS=$'\t' read -r provider rank model input_price output_price total_price; do
+        printf '%-12s %-6s %-48s %14s %14s %14s\n' "$provider" "$rank" "$model" "$input_price" "$output_price" "$total_price"
+      done || status=1
+  rm -rf "$temporary_dir"
+  return "$status"
+}
+
+case "${1:-}" in
+  use)
+    [[ $# -eq 3 ]] || usage
+    provider="$2"
+    model="$3"
+    validate_provider "$provider"
+    validate_model "$model"
+    if [[ "$provider" == local ]]; then
+      select_local_model "$model"
+    fi
+    write_state "$provider" "$model"
+    apply_to_running_agents
+    printf 'Selected %s/%s for new Codex and Claude sessions.\n' "$provider" "$model"
+    ;;
+  current)
+    if [[ -r "$state_file" ]]; then
+      cat "$state_file"
+    else
+      printf 'No model has been selected yet.\n'
+    fi
+    ;;
+  list)
+    list_models "${@:2}"
+    ;;
+  local)
+    [[ "${2:-}" == list && $# -eq 2 ]] || usage
+    if [[ -z "$(docker compose ps -q lmstudio)" ]]; then
+      echo "LM Studio is not running. Start it with: docker compose --profile local up -d lmstudio" >&2
+      exit 1
+    fi
+    docker compose exec -T lmstudio lms ls
+    ;;
+  *) usage ;;
+esac
