@@ -56,10 +56,28 @@ OpenRouter model ID can be selected; LiteLLM keeps the provider credentials in
 the gateway. The selected provider/model is stored in `model-selection/` and is
 also applied to the running agent containers without recreating them.
 
-`./modelctl list` queries every provider's live model catalogue by default.
-It keeps the provider rank, identifies the provider, and sorts rows by combined
-input/output USD per million tokens, lowest first. Pass a provider or a count
-(for example, `./modelctl list openrouter 20`) to narrow the list.
+### Host applications
+
+Host applications use LiteLLM at `http://localhost:4000/v1` with API key
+`lm-studio`. Read `model-selection/selected.env` before each new request or
+session to follow the current `modelctl` selection.
+
+| Selected provider | Chat Completions model | Responses API model |
+| --- | --- | --- |
+| Chutes | `chutes/<MODEL_ID>` | `chutes-responses/<MODEL_ID>` |
+| OpenRouter | `openrouter/<MODEL_ID>` | `openrouter/<MODEL_ID>` |
+| Local | `local/model` | `local/model` |
+
+There is no stable selected-model gateway alias. Applications should reread or
+watch `model-selection/selected.env` to use subsequent model switches.
+
+`./modelctl list` queries every provider's live model catalogue and shows
+models costing up to $1 per million input-plus-output tokens by default. It
+keeps the provider rank, identifies the provider, and sorts rows by combined
+input/output USD per million tokens, lowest first. The Parameters column shows
+the published parameter count when it is available. Pass `all` to remove the
+price limit, or pass a provider or a count (for example, `./modelctl list
+openrouter 20`) to narrow the list.
 
 Selecting a local model starts the optional LM Studio service, downloads the
 model when needed, unloads the previous local LLM, and loads the new one as

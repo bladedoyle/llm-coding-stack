@@ -122,11 +122,18 @@ apply_to_running_agents() {
 }
 
 parse_list_count() {
-  local requested_count="${1:-10}"
+  local requested_count="${1:-default}"
+
+  model_list_max_total=1
 
   case "$requested_count" in
+    default)
+      model_list_limit=99999
+      model_list_heading='Models'
+      ;;
     all)
       model_list_limit=99999
+      model_list_max_total=null
       model_list_heading='All'
       ;;
     *[!0-9]*|'')
@@ -148,12 +155,20 @@ fetch_openrouter_models() {
   curl --fail --silent --show-error --location --max-time 30 \
     'https://openrouter.ai/api/v1/models?category=programming&sort=coding-high-to-low' \
     | jq '
+      def clean_size:
+        gsub("\\s+"; "") | ascii_upcase;
+      def name_size:
+        try (capture("(?i)(?<size>[0-9]+(?:\\.[0-9]+)?\\s*[BMTP])").size | clean_size) catch null;
+      def parameter_size:
+        (try (capture("(?i)(?<size>[0-9]+(?:\\.[0-9]+)?\\s*[BMTP])\\s+total(?:\\s+parameters?)?").size | clean_size) catch null)
+        // (try (capture("(?i)(?<size>[0-9]+(?:\\.[0-9]+)?\\s*[BMTP])\\s+parameters?").size | clean_size) catch null);
       [.data
       | to_entries[]
       | {
           rank: (.key + 1),
           provider: "OpenRouter",
           model: .value.id,
+          size: ((.value.name | name_size) // ((.value.description // "") | parameter_size) // "n/a"),
           input: ((.value.pricing.prompt // "0") | tonumber * 1000000),
           output: ((.value.pricing.completion // "0") | tonumber * 1000000)
         }]
@@ -164,12 +179,20 @@ fetch_chutes_models() {
   curl --fail --silent --show-error --location --max-time 30 \
     'https://chutes.ai/api/models?type=llm&sort=popularity&limit=100' \
     | jq '
+      def clean_size:
+        gsub("\\s+"; "") | ascii_upcase;
+      def name_size:
+        try (capture("(?i)(?<size>[0-9]+(?:\\.[0-9]+)?\\s*[BMTP])").size | clean_size) catch null;
+      def parameter_size:
+        (try (capture("(?i)(?<size>[0-9]+(?:\\.[0-9]+)?\\s*[BMTP])\\s+total(?:\\s+parameters?)?").size | clean_size) catch null)
+        // (try (capture("(?i)(?<size>[0-9]+(?:\\.[0-9]+)?\\s*[BMTP])\\s+parameters?").size | clean_size) catch null);
       [.items
       | to_entries[]
       | {
           rank: (.key + 1),
           provider: "Chutes",
           model: .value.name,
+          size: ((.value.name | name_size) // ((.value.tagline // "") | parameter_size) // "n/a"),
           input: .value.pricing.input_per_million,
           output: .value.pricing.output_per_million
         }]
@@ -181,13 +204,13 @@ parse_list_arguments() {
 
   case $# in
     0)
-      parse_list_count all
+      parse_list_count default
       ;;
     1)
       case "$1" in
         chutes|openrouter)
           model_list_provider="$1"
-          parse_list_count all
+          parse_list_count default
           ;;
         local)
           echo "Local models are not listed because their pricing is host-specific." >&2
@@ -247,20 +270,25 @@ list_models() {
     chutes) provider_label='Chutes' ;;
     openrouter) provider_label='OpenRouter' ;;
   esac
-  printf '%s models from %s, sorted by total token price (lowest first)\n' "$model_list_heading" "$provider_label"
-  printf '%-12s %-6s %-48s %14s %14s %14s\n' 'Provider' 'Rank' 'Model ID' 'Input / 1M' 'Output / 1M' 'Total / 1M'
+  if [[ "$model_list_max_total" == null ]]; then
+    printf '%s models from %s, sorted by total token price (lowest first)\n' "$model_list_heading" "$provider_label"
+  else
+    printf '%s from %s with total token price up to $1 / 1M, sorted lowest first\n' "$model_list_heading" "$provider_label"
+  fi
+  printf '%-12s %-6s %-48s %-12s %14s %14s %14s\n' 'Provider' 'Rank' 'Model ID' 'Parameters' 'Input / 1M' 'Output / 1M' 'Total / 1M'
   status=0
-  jq -r --argjson limit "$model_list_limit" '
+  jq -r --argjson limit "$model_list_limit" --argjson max_total "$model_list_max_total" '
     def usd_per_million:
       if . == 0 then "free" else "$\((. * 10000 | round / 10000))" end;
     sort_by([(.input + .output), .input, .output, .provider, .model])
+    | if $max_total == null then . else map(select((.input + .output) <= $max_total)) end
     | .[:$limit]
     | .[]
-    | [.provider, .rank, .model, (.input | usd_per_million), (.output | usd_per_million), ((.input + .output) | usd_per_million)]
+    | [.provider, .rank, .model, .size, (.input | usd_per_million), (.output | usd_per_million), ((.input + .output) | usd_per_million)]
     | @tsv
   ' "$temporary_dir/models.json" \
-    | while IFS=$'\t' read -r provider rank model input_price output_price total_price; do
-        printf '%-12s %-6s %-48s %14s %14s %14s\n' "$provider" "$rank" "$model" "$input_price" "$output_price" "$total_price"
+    | while IFS=$'\t' read -r provider rank model size input_price output_price total_price; do
+        printf '%-12s %-6s %-48s %-12s %14s %14s %14s\n' "$provider" "$rank" "$model" "$size" "$input_price" "$output_price" "$total_price"
       done || status=1
   rm -rf "$temporary_dir"
   return "$status"
