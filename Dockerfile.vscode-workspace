@@ -12,7 +12,6 @@ RUN apt-get update \
         file \
         ca-certificates \
         curl \
-        docker.io \
         git \
         gnupg \
         jq \
@@ -34,13 +33,6 @@ RUN apt-get update \
         make \
         build-essential \
  && rm -rf /var/lib/apt/lists/*
-
-# The workspace runs an isolated Docker daemon at runtime. The vscode user can
-# use its Unix socket without sudo.
-RUN sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/bin/docker-compose && \
-    sudo chmod +x /usr/bin/docker-compose
-
-RUN usermod -aG docker ${USERNAME}
 
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
@@ -71,36 +63,20 @@ RUN curl -LsSf https://astral.sh/uv/install.sh \
  && uv tool install --python /usr/bin/python3 pytest==9.1.1 \
  && chmod -R a+rX /opt/uv
 
-COPY configure-codex-provider.sh /usr/local/bin/configure-codex-provider
-RUN chmod 0755 /usr/local/bin/configure-codex-provider
+COPY modelctl-in-container.sh /usr/local/bin/modelctl
+RUN chmod 0755 /usr/local/bin/modelctl
 
-# Codex config: the VS Code extension reads this base config rather than a CLI
-# profile, so Chutes is its default provider. The lm-studio profile below keeps
-# the local model available for terminal sessions.
+# Codex config: the VS Code extension reads this base config. modelctl updates
+# its selected LiteLLM route for new agent sessions.
 RUN mkdir -p /home/${USERNAME}/.codex/model-catalogs \
- && printf 'model_provider = "chutes"\n\
-model = "chutes/model-responses"\n\
+ && printf 'model_provider = "litellm"\n\
+model = "chutes-responses/deepseek-ai/DeepSeek-V3.2-TEE"\n\
 model_catalog_json = "/home/vscode/.codex/model-catalogs/local.json"\n\
 model_reasoning_effort = "max"\n\
 personality = "pragmatic"\n\
 \n\
-[model_providers.local-lm-studio]\n\
-name = "Local LM Studio"\n\
-base_url = "http://lmstudio:1234/v1"\n\
-env_key = "CODEX_LM_STUDIO_API_KEY"\n\
-wire_api = "responses"\n\
-\n\
-# Route Chutes traffic through LiteLLM so the gateway can log and inspect Codex\n\
-# requests. Only LiteLLM receives the Chutes API key.\n\
-[model_providers.chutes]\n\
-name = "Chutes (Bittensor via LiteLLM)"\n\
-base_url = "http://litellm:4000/v1"\n\
-env_key = "CODEX_LITELLM_API_KEY"\n\
-wire_api = "responses"\n\
-stream_max_retries = 50\n\
-\n\
-[model_providers.openrouter]\n\
-name = "OpenRouter via LiteLLM"\n\
+[model_providers.litellm]\n\
+name = "LiteLLM"\n\
 base_url = "http://litellm:4000/v1"\n\
 env_key = "CODEX_LITELLM_API_KEY"\n\
 wire_api = "responses"\n\
@@ -150,20 +126,7 @@ QDRANT_URL = "http://qdrant:6333"\n\
 COLLECTION_NAME = "codebase"\n\
 EMBEDDING_PROVIDER = "fastembed"\n\
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"\n\
-FASTEMBED_CACHE_PATH = "/home/vscode/.cache/fastembed"\n' > /home/${USERNAME}/.codex/config.toml \
- && printf 'model_provider = "local-lm-studio"\n\
-model = "local/model"\n\
-model_context_window = 65536\n\
-model_catalog_json = "/home/vscode/.codex/model-catalogs/local.json"\n' \
-     > /home/${USERNAME}/.codex/lm-studio.config.toml \
- && printf 'model_provider = "chutes"\n\
-model = "chutes/model-responses"\n\
-model_catalog_json = "/home/vscode/.codex/model-catalogs/local.json"\n' \
-     > /home/${USERNAME}/.codex/chutes.config.toml \
- && printf 'model_provider = "openrouter"\n\
-model = "openrouter/model"\n\
-model_catalog_json = "/home/vscode/.codex/model-catalogs/local.json"\n' \
-     > /home/${USERNAME}/.codex/openrouter.config.toml
+FASTEMBED_CACHE_PATH = "/home/vscode/.cache/fastembed"\n' > /home/${USERNAME}/.codex/config.toml
 
 COPY model-catalog.local.json /home/${USERNAME}/.codex/model-catalogs/local.json
 
@@ -178,16 +141,23 @@ RUN printf '# Personal agent directives\n\
 - If a goal is too hard to do all at once break it into smaller tasks and solve each of those individually.\n' \
         > /home/${USERNAME}/.codex/AGENTS.md
 
-# Seed an API-key auth.json so the VS Code Codex extension skips ChatGPT sign-in
-RUN HOME=/home/${USERNAME} sh -lc 'printf "lm-studio" | codex login --with-api-key'
+# Seed auth state so the VS Code Codex extension uses the configured provider.
+RUN HOME=/home/${USERNAME} sh -lc 'printf "local-provider-placeholder" | codex login --with-api-key'
 
 RUN chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.codex \
- && mkdir -p /home/${USERNAME}/.mcp-memory \
- && chown ${USERNAME}:${USERNAME} /home/${USERNAME}/.mcp-memory \
+ && mkdir -p \
+        /home/${USERNAME}/.mcp-memory \
+        /home/${USERNAME}/.vscode-server \
+        /home/${USERNAME}/.vscode-server-insiders \
+        /home/${USERNAME}/.config/Code \
+ && chown -R ${USERNAME}:${USERNAME} \
+        /home/${USERNAME}/.mcp-memory \
+        /home/${USERNAME}/.vscode-server \
+        /home/${USERNAME}/.vscode-server-insiders \
+        /home/${USERNAME}/.config/Code \
  && FASTEMBED_CACHE_PATH=/home/${USERNAME}/.cache/fastembed \
     /opt/uv/tools/mcp-server-qdrant/bin/python -c "from fastembed import TextEmbedding; TextEmbedding('sentence-transformers/all-MiniLM-L6-v2')" \
  && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.cache
 
-ENV CODEX_LM_STUDIO_API_KEY=lm-studio
-
+USER ${USERNAME}
 WORKDIR /workspaces

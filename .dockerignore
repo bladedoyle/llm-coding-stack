@@ -3,6 +3,7 @@
 .agents
 .codex
 workspaces
+.modelctl.swap
 *.log
 __pycache__
 *.py[cod]

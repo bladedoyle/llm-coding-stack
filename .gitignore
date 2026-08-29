@@ -14,5 +14,16 @@ __pycache__/
 venv/
 .venv/
 
+# Runtime model selection shared by the agent containers.
+model-selection/*
+!model-selection/.gitkeep
+
+# Host-managed swap used by large local coding models.
+.modelctl.swap
+
 # Logs
 *.log
+
+# Local model research notes
+MODELS.md
+MODELS_RAM.md

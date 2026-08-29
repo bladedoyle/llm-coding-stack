@@ -8,7 +8,6 @@ RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        docker.io \
         git \
         procps \
         bubblewrap \
@@ -63,7 +62,6 @@ RUN userdel -r node 2>/dev/null || true \
  && groupadd --gid ${USER_GID} ${USERNAME} \
  && useradd --uid ${USER_UID} --gid ${USER_GID} --shell /bin/bash \
             --create-home ${USERNAME} \
- && usermod -aG docker ${USERNAME} \
  && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
  && chmod 0440 /etc/sudoers.d/${USERNAME}
 
@@ -74,51 +72,29 @@ RUN mv /usr/local/bin/codex /usr/local/bin/codex.real \
         > /usr/local/bin/codex \
  && chmod +x /usr/local/bin/codex
 
-# Pre-configure LM Studio as the local OpenAI-compatible provider.
-# LM_STUDIO_BASE_URL can be overridden at runtime.
-ENV LM_STUDIO_BASE_URL=http://lmstudio:1234/v1
-
 RUN mkdir -p /home/${USERNAME}/.codex/model-catalogs
 
-COPY configure-codex-provider.sh /usr/local/bin/configure-codex-provider
-RUN chmod 0755 /usr/local/bin/configure-codex-provider
+COPY modelctl-in-container.sh /usr/local/bin/modelctl
+RUN chmod 0755 /usr/local/bin/modelctl
 
 # Copy pre-built catalog with all fields the upstream schema requires.
 # Edit model-catalog.local.json in the build context to add models.
 COPY model-catalog.local.json /home/${USERNAME}/.codex/model-catalogs/local.json
 
-# Base config.toml: provider + catalog only. Codex 0.134.0+ rejects the legacy
-# [profiles.*] table and the top-level profile selector; profiles must live in
-# their own ~/.codex/<name>.config.toml file using top-level keys.
-RUN printf '# Avoid reserved names ("ollama", "oss", "lmstudio") -- they hardcode\n\
-# localhost checks and ignore base_url. Use a custom name instead.\n\
-# LM Studio supports the OpenAI-compatible /v1/responses endpoint used by Codex.\n\
-model_provider = "chutes"\n\
-model = "chutes/model-responses"\n\
+# All model traffic goes through LiteLLM. modelctl changes the selected route
+# for each new session without recreating this container.
+RUN printf 'model_provider = "litellm"\n\
+model = "chutes-responses/deepseek-ai/DeepSeek-V3.2-TEE"\n\
 model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n\
 model_reasoning_effort = "max"\n\
 \n\
-[model_providers.local-lm-studio]\n\
-name = "Local LM Studio"\n\
-base_url = "http://lmstudio:1234/v1"\n\
-env_key = "CODEX_LM_STUDIO_API_KEY"\n\
-wire_api = "responses"\n\
-\n\
-# Chutes traffic is routed through LiteLLM so this gateway can log and inspect\n\
-# all Codex requests. Only LiteLLM receives the Chutes API key.\n\
-[model_providers.chutes]\n\
-name = "Chutes (Bittensor via LiteLLM)"\n\
+[model_providers.litellm]\n\
+name = "LiteLLM"\n\
 base_url = "http://litellm:4000/v1"\n\
 env_key = "CODEX_LITELLM_API_KEY"\n\
 wire_api = "responses"\n\
 stream_max_retries = 50\n\
-\n\
-[model_providers.openrouter]\n\
-name = "OpenRouter via LiteLLM"\n\
-base_url = "http://litellm:4000/v1"\n\
-env_key = "CODEX_LITELLM_API_KEY"\n\
-wire_api = "responses"\n\
-stream_max_retries = 50\n' > /home/${USERNAME}/.codex/config.toml \
+\n' > /home/${USERNAME}/.codex/config.toml \
  && printf '\n\
 # Common MCP servers enabled for the Codex agent. All are pre-installed in the\n\
 # image so they start without network access.\n\
@@ -167,16 +143,6 @@ COLLECTION_NAME = "codebase"\n\
 EMBEDDING_PROVIDER = "fastembed"\n\
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"\n\
 FASTEMBED_CACHE_PATH = "/home/codex/.cache/fastembed"\n' >> /home/${USERNAME}/.codex/config.toml \
- && printf 'model_provider = "local-lm-studio"\n\
-model = "local/model"\n\
-model_context_window = 65536\n\
-model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n' > /home/${USERNAME}/.codex/lm-studio.config.toml \
- && printf 'model_provider = "chutes"\n\
-model = "chutes/model-responses"\n\
-model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n' > /home/${USERNAME}/.codex/chutes.config.toml \
- && printf 'model_provider = "openrouter"\n\
-model = "openrouter/model"\n\
-model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n' > /home/${USERNAME}/.codex/openrouter.config.toml \
  && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.codex \
  && mkdir -p /home/${USERNAME}/.mcp-memory \
  && chown ${USERNAME}:${USERNAME} /home/${USERNAME}/.mcp-memory \
@@ -184,10 +150,7 @@ model_catalog_json = "/home/codex/.codex/model-catalogs/local.json"\n' > /home/$
     /opt/uv/tools/mcp-server-qdrant/bin/python -c "from fastembed import TextEmbedding; TextEmbedding('sentence-transformers/all-MiniLM-L6-v2')" \
  && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.cache
 
-# Dummy key - LM Studio does not require a real OpenAI key for local requests.
-ENV CODEX_LM_STUDIO_API_KEY=lm-studio
-
 USER ${USERNAME}
 WORKDIR /workspaces
 
-CMD ["codex", "--profile", "lm-studio"]
+CMD ["codex"]

@@ -8,7 +8,6 @@ RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        docker.io \
         git \
         procps \
         bubblewrap \
@@ -60,21 +59,18 @@ RUN userdel -r node 2>/dev/null || true \
  && groupadd --gid ${USER_GID} ${USERNAME} \
  && useradd --uid ${USER_UID} --gid ${USER_GID} --shell /bin/bash \
             --create-home ${USERNAME} \
- && usermod -aG docker ${USERNAME} \
  && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
  && chmod 0440 /etc/sudoers.d/${USERNAME}
 
-# This is an isolated, privileged development container, matching the Codex
-# image's non-interactive permission behavior.
 RUN mv /usr/local/bin/claude /usr/local/bin/claude.real \
  && printf '#!/bin/sh\nexec /usr/local/bin/claude.real --dangerously-skip-permissions "$@"\n' \
         > /usr/local/bin/claude \
  && chmod 0755 /usr/local/bin/claude
 
-COPY configure-claude-provider.sh /usr/local/bin/configure-claude-provider
+COPY modelctl-in-container.sh /usr/local/bin/modelctl
 COPY configure-claude-mcp.sh /usr/local/bin/configure-claude-mcp
 RUN chmod 0755 \
-        /usr/local/bin/configure-claude-provider \
+        /usr/local/bin/modelctl \
         /usr/local/bin/configure-claude-mcp \
  && mkdir -p /home/${USERNAME}/.claude /home/${USERNAME}/.mcp-memory \
  && printf '{}\n' > /home/${USERNAME}/.claude.json \

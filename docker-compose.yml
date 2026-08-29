@@ -1,24 +1,24 @@
 services:
-  # LM Studio: GPU-accelerated local LLM server. Hosts the model selected in
-  # .env and exposes it as local/model on its OpenAI-compatible API.
+  # LM Studio runs only when the local profile is enabled. It is CPU-compatible
+  # by default; use docker-compose.nvidia.yml to expose NVIDIA GPUs.
   lmstudio:
     build:
       context: .
       dockerfile: Dockerfile.lmstudio
     container_name: lmstudio
-    runtime: nvidia
+    profiles: ["local"]
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - LMS_SERVER_HOST=0.0.0.0
       - LMS_SERVER_PORT=1234
-      - LLM_PROVIDER=${LLM_PROVIDER:-chutes}
-      - LOCAL_MODEL=${LOCAL_MODEL:-}
       - LOCAL_CONTEXT_WINDOW=${LOCAL_CONTEXT_WINDOW:-65536}
+      - LOCAL_GPU_OFFLOAD=${LOCAL_GPU_OFFLOAD:-}
+      - LMSTUDIO_STARTUP_STATE_FILE=/var/lib/local-llm-stack/lmstudio-startup.env
+      - HF_TOKEN=${HF_TOKEN:-}
     volumes:
       - lmstudio_models:/root/.lmstudio/models
+      - ./model-selection:/var/lib/local-llm-stack:ro
     ports:
-      - "1234:1234"
+      - "127.0.0.1:1234:1234"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:1234/v1/models >/dev/null || exit 1"]
       interval: 10s
@@ -42,15 +42,10 @@ services:
     # See LITELLM_DEBUG_MODE in .env. Keep debug gateway logs local.
     entrypoint: ["/bin/sh", "/app/litellm-entrypoint.sh"]
     environment:
-      - LITELLM_MASTER_KEY=lm-studio
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}
       - CHUTES_API_KEY=${CHUTES_API_KEY:-}
-      - CHUTES_MODEL=${CHUTES_MODEL:-deepseek-ai/DeepSeek-V3.2-TEE}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-tencent/hy3:free}
       - LITELLM_DEBUG_MODE=${LITELLM_DEBUG_MODE:-off}
-    depends_on:
-      lmstudio:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')\" 2>/dev/null || exit 1"]
       interval: 15s
@@ -82,9 +77,8 @@ services:
     networks:
       - all-net
 
-  # VS Code workspace: dev container for the VS Code extension-based agent
-  # (Cline/Codex). Includes a full C/C++ toolchain and MCP servers, and talks
-  # directly to LM Studio for the responses API.
+  # VS Code workspace: dev container for the Codex extension and CLI. Includes
+  # a full development toolchain and MCP servers; model traffic uses LiteLLM.
   workspace:
     build:
       context: .
@@ -92,30 +86,29 @@ services:
     container_name: vscode-workspace
     restart: unless-stopped
     init: true
-    privileged: true
-    user: root
+    user: vscode
     command:
       - bash
       - -lc
-      - "install -d -o vscode -g vscode /home/vscode/.vscode-server /home/vscode/.vscode-server-insiders /home/vscode/.config/Code; chown vscode:vscode /home/vscode/.vscode-server /home/vscode/.vscode-server-insiders /home/vscode/.config/Code; configure-codex-provider /home/vscode/.codex/config.toml; dockerd --host=unix:///var/run/docker.sock --storage-driver=vfs >/var/log/dockerd.log 2>&1 & for i in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done; docker info >/dev/null 2>&1 || { cat /var/log/dockerd.log; exit 1; }; exec sleep infinity"
+      - "modelctl apply; exec sleep infinity"
     volumes:
       - ./workspaces:/workspaces
       - vscode_server:/home/vscode/.vscode-server
       - vscode_server_insiders:/home/vscode/.vscode-server-insiders
       - vscode_data:/home/vscode/.config/Code
       - vscode_memory:/home/vscode/.mcp-memory
-      - vscode_dind:/var/lib/docker
+      - ./model-selection:/var/lib/local-llm-stack
     environment:
       - LM_STUDIO_BASE_URL=http://lmstudio:1234/v1
       - OPENAI_BASE_URL=http://litellm:4000/v1
-      - OPENAI_API_KEY=lm-studio
-      - CODEX_LITELLM_API_KEY=lm-studio
-      - LOCAL_CONTEXT_WINDOW=${LOCAL_CONTEXT_WINDOW:-65536}
-      - LLM_PROVIDER=${LLM_PROVIDER:-chutes}
-      - DOCKER_HOST=unix:///var/run/docker.sock
+      - OPENAI_API_KEY=${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}
+      - CODEX_LITELLM_API_KEY=${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}
+      - MODELCTL_APP=codex
+      - MODEL_STATE_FILE=/var/lib/local-llm-stack/selected.env
+      - DEFAULT_MODEL_PROVIDER=${DEFAULT_MODEL_PROVIDER:-chutes}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-deepseek-ai/DeepSeek-V3.2-TEE}
+      - HOME=/home/vscode
     depends_on:
-      lmstudio:
-        condition: service_healthy
       litellm:
         condition: service_healthy
       qdrant:
@@ -145,7 +138,7 @@ services:
       - all-net
 
   # Codex CLI workspace: headless container running the OpenAI Codex CLI agent
-  # with a full C/C++ toolchain and MCP servers. Streams directly from LM Studio.
+  # with a full C/C++ toolchain and MCP servers.
   codex:
     build:
       context: .
@@ -153,28 +146,23 @@ services:
     container_name: codex-cli-workspace
     restart: unless-stopped
     init: true
-    user: root
-    privileged: true
     command:
       - bash
       - -lc
-      - "configure-codex-provider /home/codex/.codex/config.toml; dockerd --host=unix:///var/run/docker.sock --storage-driver=vfs >/var/log/dockerd.log 2>&1 & for i in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done; docker info >/dev/null 2>&1 || { cat /var/log/dockerd.log; exit 1; }; exec sleep infinity"
-    security_opt:
-      - seccomp:unconfined
+      - "modelctl apply; exec sleep infinity"
     volumes:
       - ./workspaces:/workspaces
       - codex_cli_workspace_memory:/home/codex/.mcp-memory
-      - codex_dind:/var/lib/docker
+      - ./model-selection:/var/lib/local-llm-stack
     environment:
       - CODEX_LM_STUDIO_API_KEY=lm-studio
-      - CODEX_LITELLM_API_KEY=lm-studio
-      - LOCAL_CONTEXT_WINDOW=${LOCAL_CONTEXT_WINDOW:-65536}
-      - LLM_PROVIDER=${LLM_PROVIDER:-chutes}
-      - DOCKER_HOST=unix:///var/run/docker.sock
+      - CODEX_LITELLM_API_KEY=${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}
+      - MODELCTL_APP=codex
+      - MODEL_STATE_FILE=/var/lib/local-llm-stack/selected.env
+      - DEFAULT_MODEL_PROVIDER=${DEFAULT_MODEL_PROVIDER:-chutes}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-deepseek-ai/DeepSeek-V3.2-TEE}
       - HOME=/home/codex
     depends_on:
-      lmstudio:
-        condition: service_healthy
       litellm:
         condition: service_healthy
       qdrant:
@@ -184,8 +172,7 @@ services:
     networks:
       - all-net
 
-  # Claude Code CLI workspace: mirrors the Codex development image. Local
-  # Messages API traffic goes directly to LM Studio; cloud traffic uses LiteLLM.
+  # Claude Code CLI workspace: mirrors the Codex development image.
   claude-code:
     build:
       context: .
@@ -193,25 +180,22 @@ services:
     container_name: claude-code-cli-workspace
     restart: unless-stopped
     init: true
-    privileged: true
     command:
       - bash
       - -lc
-      - "test -f /home/claude/.claude.json || printf '{}\\n' > /home/claude/.claude.json; configure-claude-provider /home/claude/.claude/settings.json; configure-claude-mcp /home/claude/.claude.json; sudo dockerd --host=unix:///var/run/docker.sock --storage-driver=vfs >/tmp/claude-dockerd.log 2>&1 & for i in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done; docker info >/dev/null 2>&1 || { cat /tmp/claude-dockerd.log; exit 1; }; exec sleep infinity"
-    security_opt:
-      - seccomp:unconfined
+      - "test -f /home/claude/.claude.json || printf '{}\\n' > /home/claude/.claude.json; modelctl apply; configure-claude-mcp /home/claude/.claude.json; exec sleep infinity"
     volumes:
       - ./workspaces:/workspaces
       - claude_code_home:/home/claude
-      - claude_code_dind:/var/lib/docker
+      - ./model-selection:/var/lib/local-llm-stack
     environment:
-      - LOCAL_CONTEXT_WINDOW=${LOCAL_CONTEXT_WINDOW:-65536}
-      - LLM_PROVIDER=${LLM_PROVIDER:-chutes}
-      - DOCKER_HOST=unix:///var/run/docker.sock
+      - LITELLM_API_KEY=${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}
+      - MODELCTL_APP=claude
+      - MODEL_STATE_FILE=/var/lib/local-llm-stack/selected.env
+      - DEFAULT_MODEL_PROVIDER=${DEFAULT_MODEL_PROVIDER:-chutes}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-deepseek-ai/DeepSeek-V3.2-TEE}
       - HOME=/home/claude
     depends_on:
-      lmstudio:
-        condition: service_healthy
       litellm:
         condition: service_healthy
       qdrant:
@@ -233,7 +217,4 @@ volumes:
   vscode_server:
   vscode_server_insiders:
   vscode_data:
-  codex_dind:
-  vscode_dind:
   claude_code_home:
-  claude_code_dind:
