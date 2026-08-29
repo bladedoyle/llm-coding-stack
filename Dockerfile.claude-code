@@ -34,12 +34,6 @@ RUN apt-get update \
         sudo \
  && rm -rf /var/lib/apt/lists/*
 
-COPY install-docker-engine.sh nested-docker-entrypoint.sh /usr/local/bin/
-RUN chmod 0755 \
-        /usr/local/bin/install-docker-engine.sh \
-        /usr/local/bin/nested-docker-entrypoint.sh \
- && install-docker-engine.sh
-
 RUN npm install -g @anthropic-ai/claude-code
 
 # Match the Codex image's pre-installed local development and MCP toolchain.
@@ -65,12 +59,9 @@ RUN userdel -r node 2>/dev/null || true \
  && groupadd --gid ${USER_GID} ${USERNAME} \
  && useradd --uid ${USER_UID} --gid ${USER_GID} --shell /bin/bash \
             --create-home ${USERNAME} \
- && usermod -aG docker ${USERNAME} \
  && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
  && chmod 0440 /etc/sudoers.d/${USERNAME}
 
-# This is an isolated, privileged development container, matching the Codex
-# image's non-interactive permission behavior.
 RUN mv /usr/local/bin/claude /usr/local/bin/claude.real \
  && printf '#!/bin/sh\nexec /usr/local/bin/claude.real --dangerously-skip-permissions "$@"\n' \
         > /usr/local/bin/claude \

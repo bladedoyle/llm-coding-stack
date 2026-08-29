@@ -2,7 +2,8 @@
 set -euo pipefail
 
 state_file=${LMSTUDIO_STARTUP_STATE_FILE:-/var/lib/local-llm-stack/lmstudio-startup.env}
-backend=/root/.lmstudio/extensions/backends/llama.cpp-linux-x86_64-nvidia-cuda-avx2-2.30.0/llama-server
+backend_version=${LMSTUDIO_LLAMA_BACKEND_VERSION:?LMSTUDIO_LLAMA_BACKEND_VERSION must be set}
+backend=/root/.lmstudio/extensions/backends/llama.cpp-linux-x86_64-nvidia-cuda-avx2-${backend_version}/llama-server
 quality_model_path=/root/.lmstudio/models/ggml-org/gpt-oss-120b-GGUF/gpt-oss-120b-MXFP4.gguf
 quality_vendor_path=/root/.lmstudio/models/.runtime/linux-llama-cuda-vendor-v1
 
@@ -12,7 +13,6 @@ state_value() {
 }
 
 preset=none
-model_id=
 download_spec=
 load_key=
 model_path=
@@ -21,7 +21,6 @@ gpu_offload=${LOCAL_GPU_OFFLOAD:-}
 
 if [[ -r "$state_file" ]]; then
   preset=$(state_value PRESET)
-  model_id=$(state_value MODEL_ID)
   download_spec=$(state_value DOWNLOAD_SPEC)
   load_key=$(state_value LOAD_KEY)
   model_path=$(state_value MODEL_PATH)
@@ -51,7 +50,7 @@ if [[ "$preset" == quality ]]; then
   lms server stop
   if [[ ! -f "$quality_vendor_path/libcudart.so.11.0" ]]; then
     vendor=
-    for attempt in $(seq 1 120); do
+    for _ in $(seq 1 120); do
       vendor=$(find /root/.lmstudio/llmster -type f -name libcudart.so.11.0 -printf '%h\n' -quit 2>/dev/null)
       if [[ -x "$backend" && -n "$vendor" ]]; then
         break

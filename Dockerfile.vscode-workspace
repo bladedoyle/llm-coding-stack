@@ -34,14 +34,6 @@ RUN apt-get update \
         build-essential \
  && rm -rf /var/lib/apt/lists/*
 
-COPY install-docker-engine.sh nested-docker-entrypoint.sh /usr/local/bin/
-RUN chmod 0755 \
-        /usr/local/bin/install-docker-engine.sh \
-        /usr/local/bin/nested-docker-entrypoint.sh \
- && install-docker-engine.sh
-
-RUN usermod -aG docker ${USERNAME}
-
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/* \
@@ -149,14 +141,23 @@ RUN printf '# Personal agent directives\n\
 - If a goal is too hard to do all at once break it into smaller tasks and solve each of those individually.\n' \
         > /home/${USERNAME}/.codex/AGENTS.md
 
-# Seed an API-key auth.json so the VS Code Codex extension skips ChatGPT sign-in
-RUN HOME=/home/${USERNAME} sh -lc 'printf "lm-studio" | codex login --with-api-key'
+# Seed auth state so the VS Code Codex extension uses the configured provider.
+RUN HOME=/home/${USERNAME} sh -lc 'printf "local-provider-placeholder" | codex login --with-api-key'
 
 RUN chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.codex \
- && mkdir -p /home/${USERNAME}/.mcp-memory \
- && chown ${USERNAME}:${USERNAME} /home/${USERNAME}/.mcp-memory \
+ && mkdir -p \
+        /home/${USERNAME}/.mcp-memory \
+        /home/${USERNAME}/.vscode-server \
+        /home/${USERNAME}/.vscode-server-insiders \
+        /home/${USERNAME}/.config/Code \
+ && chown -R ${USERNAME}:${USERNAME} \
+        /home/${USERNAME}/.mcp-memory \
+        /home/${USERNAME}/.vscode-server \
+        /home/${USERNAME}/.vscode-server-insiders \
+        /home/${USERNAME}/.config/Code \
  && FASTEMBED_CACHE_PATH=/home/${USERNAME}/.cache/fastembed \
     /opt/uv/tools/mcp-server-qdrant/bin/python -c "from fastembed import TextEmbedding; TextEmbedding('sentence-transformers/all-MiniLM-L6-v2')" \
  && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.cache
 
+USER ${USERNAME}
 WORKDIR /workspaces

@@ -144,6 +144,7 @@ configure_codex() {
 configure_claude() {
   settings_file="${CLAUDE_SETTINGS_FILE:-$HOME/.claude/settings.json}"
   settings_dir=$(dirname "$settings_file")
+  litellm_api_key="${LITELLM_API_KEY:?LITELLM_API_KEY must be set}"
   temporary_file="${settings_file}.tmp"
 
   mkdir -p "$settings_dir"
@@ -152,9 +153,10 @@ configure_claude() {
   fi
 
   jq --arg model "$route" \
+    --arg litellm_api_key "$litellm_api_key" \
     '.env = ((.env // {}) + {
       "ANTHROPIC_BASE_URL": "http://litellm:4000",
-      "ANTHROPIC_AUTH_TOKEN": "lm-studio",
+      "ANTHROPIC_AUTH_TOKEN": $litellm_api_key,
       "ANTHROPIC_MODEL": $model,
       "ANTHROPIC_DEFAULT_HAIKU_MODEL": $model,
       "ANTHROPIC_DEFAULT_SONNET_MODEL": $model,

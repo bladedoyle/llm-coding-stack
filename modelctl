@@ -81,7 +81,7 @@ write_lmstudio_startup() {
 }
 
 wait_for_local_model() {
-  local attempt container_id initial_restart_count models_json restart_count status
+  local container_id initial_restart_count models_json restart_count status
 
   container_id=$(docker compose ps -a -q lmstudio)
   if [[ -z "$container_id" ]]; then
@@ -90,7 +90,7 @@ wait_for_local_model() {
   fi
   initial_restart_count=$(docker inspect --format '{{.RestartCount}}' "$container_id")
 
-  for attempt in $(seq 1 900); do
+  for _ in $(seq 1 900); do
     status=$(docker inspect --format '{{.State.Status}}' "$container_id")
     restart_count=$(docker inspect --format '{{.RestartCount}}' "$container_id")
     if [[ "$status" == exited || "$status" == dead || "$restart_count" != "$initial_restart_count" ]]; then
@@ -241,6 +241,7 @@ select_local_model() {
   write_lmstudio_startup managed "$model" "$model" "$model" '' "$context_window" "$gpu_offload"
   docker compose --profile local up -d --force-recreate lmstudio
   wait_for_local_model
+  disable_project_swap
 }
 
 select_local_coding_model() {
@@ -261,10 +262,27 @@ select_local_coding_model() {
   printf 'Selected local/%s for new Codex and Claude sessions.\n' "$model"
 }
 
-select_local_coding_quality_model() {
+select_local_coding_quality_model() (
   local model='ggml-org/gpt-oss-120b-GGUF'
   local download_spec='https://huggingface.co/ggml-org/gpt-oss-120b-GGUF@mxfp4'
   local model_path='/root/.lmstudio/models/ggml-org/gpt-oss-120b-GGUF/gpt-oss-120b-MXFP4.gguf'
+  local selection_complete=false
+
+  cleanup_quality_selection() {
+    local status=$?
+
+    trap - EXIT INT TERM
+    if [[ "$selection_complete" != true ]]; then
+      set +e
+      docker compose --profile local stop lmstudio >/dev/null 2>&1
+      disable_project_swap
+    fi
+    exit "$status"
+  }
+
+  trap cleanup_quality_selection EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   enable_project_swap
   export COMPOSE_FILE="$stack_dir/docker-compose.yml:$stack_dir/docker-compose.nvidia.yml"
@@ -273,15 +291,13 @@ select_local_coding_quality_model() {
 
   write_lmstudio_startup quality "$model" "$download_spec" gpt-oss-120b "$model_path" 32768 6
   docker compose --profile local up -d --force-recreate lmstudio
-  if ! wait_for_local_model || ! verify_quality_model; then
-    docker compose --profile local stop lmstudio
-    disable_project_swap
-    return 1
-  fi
+  wait_for_local_model
+  verify_quality_model
   write_state local "$model"
   apply_to_running_agents
+  selection_complete=true
   printf 'Selected local/%s for new Codex and Claude sessions.\n' "$model"
-}
+)
 
 apply_to_running_agents() {
   local service

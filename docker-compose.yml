@@ -18,7 +18,7 @@ services:
       - lmstudio_models:/root/.lmstudio/models
       - ./model-selection:/var/lib/local-llm-stack:ro
     ports:
-      - "1234:1234"
+      - "127.0.0.1:1234:1234"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:1234/v1/models >/dev/null || exit 1"]
       interval: 10s
@@ -35,14 +35,14 @@ services:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: litellm
     ports:
-      - "0.0.0.0:4000:4000"
+      - "127.0.0.1:4000:4000"
     volumes:
       - ./litellm_config.yaml:/app/config.yaml:ro
       - ./litellm-entrypoint.sh:/app/litellm-entrypoint.sh:ro
     # See LITELLM_DEBUG_MODE in .env. Keep debug gateway logs local.
     entrypoint: ["/bin/sh", "/app/litellm-entrypoint.sh"]
     environment:
-      - LITELLM_MASTER_KEY=lm-studio
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}
       - CHUTES_API_KEY=${CHUTES_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - LITELLM_DEBUG_MODE=${LITELLM_DEBUG_MODE:-off}
@@ -87,30 +87,27 @@ services:
     container_name: vscode-workspace
     restart: unless-stopped
     init: true
-    privileged: true
-    user: root
+    user: vscode
     command:
       - bash
       - -lc
-      - "install -d -o vscode -g vscode /home/vscode/.vscode-server /home/vscode/.vscode-server-insiders /home/vscode/.config/Code; chown vscode:vscode /home/vscode/.vscode-server /home/vscode/.vscode-server-insiders /home/vscode/.config/Code; modelctl apply; exec nested-docker-entrypoint.sh sleep infinity"
+      - "modelctl apply; exec sleep infinity"
     volumes:
       - ./workspaces:/workspaces
       - vscode_server:/home/vscode/.vscode-server
       - vscode_server_insiders:/home/vscode/.vscode-server-insiders
       - vscode_data:/home/vscode/.config/Code
       - vscode_memory:/home/vscode/.mcp-memory
-      - vscode_dind:/var/lib/docker
       - ./model-selection:/var/lib/local-llm-stack
     environment:
       - LM_STUDIO_BASE_URL=http://lmstudio:1234/v1
       - OPENAI_BASE_URL=http://litellm:4000/v1
-      - OPENAI_API_KEY=lm-studio
-      - CODEX_LITELLM_API_KEY=lm-studio
+      - OPENAI_API_KEY=${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}
+      - CODEX_LITELLM_API_KEY=${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}
       - MODELCTL_APP=codex
       - MODEL_STATE_FILE=/var/lib/local-llm-stack/selected.env
       - DEFAULT_MODEL_PROVIDER=${DEFAULT_MODEL_PROVIDER:-chutes}
       - DEFAULT_MODEL=${DEFAULT_MODEL:-deepseek-ai/DeepSeek-V3.2-TEE}
-      - DOCKER_HOST=unix:///var/run/docker.sock
       - HOME=/home/vscode
     depends_on:
       litellm:
@@ -150,27 +147,21 @@ services:
     container_name: codex-cli-workspace
     restart: unless-stopped
     init: true
-    user: root
-    privileged: true
     command:
       - bash
       - -lc
-      - "modelctl apply; exec nested-docker-entrypoint.sh sleep infinity"
-    security_opt:
-      - seccomp:unconfined
+      - "modelctl apply; exec sleep infinity"
     volumes:
       - ./workspaces:/workspaces
       - codex_cli_workspace_memory:/home/codex/.mcp-memory
-      - codex_dind:/var/lib/docker
       - ./model-selection:/var/lib/local-llm-stack
     environment:
       - CODEX_LM_STUDIO_API_KEY=lm-studio
-      - CODEX_LITELLM_API_KEY=lm-studio
+      - CODEX_LITELLM_API_KEY=${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}
       - MODELCTL_APP=codex
       - MODEL_STATE_FILE=/var/lib/local-llm-stack/selected.env
       - DEFAULT_MODEL_PROVIDER=${DEFAULT_MODEL_PROVIDER:-chutes}
       - DEFAULT_MODEL=${DEFAULT_MODEL:-deepseek-ai/DeepSeek-V3.2-TEE}
-      - DOCKER_HOST=unix:///var/run/docker.sock
       - HOME=/home/codex
     depends_on:
       litellm:
@@ -190,24 +181,20 @@ services:
     container_name: claude-code-cli-workspace
     restart: unless-stopped
     init: true
-    privileged: true
     command:
       - bash
       - -lc
-      - "test -f /home/claude/.claude.json || printf '{}\\n' > /home/claude/.claude.json; modelctl apply; configure-claude-mcp /home/claude/.claude.json; exec sudo nested-docker-entrypoint.sh sleep infinity"
-    security_opt:
-      - seccomp:unconfined
+      - "test -f /home/claude/.claude.json || printf '{}\\n' > /home/claude/.claude.json; modelctl apply; configure-claude-mcp /home/claude/.claude.json; exec sleep infinity"
     volumes:
       - ./workspaces:/workspaces
       - claude_code_home:/home/claude
-      - claude_code_dind:/var/lib/docker
       - ./model-selection:/var/lib/local-llm-stack
     environment:
+      - LITELLM_API_KEY=${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}
       - MODELCTL_APP=claude
       - MODEL_STATE_FILE=/var/lib/local-llm-stack/selected.env
       - DEFAULT_MODEL_PROVIDER=${DEFAULT_MODEL_PROVIDER:-chutes}
       - DEFAULT_MODEL=${DEFAULT_MODEL:-deepseek-ai/DeepSeek-V3.2-TEE}
-      - DOCKER_HOST=unix:///var/run/docker.sock
       - HOME=/home/claude
     depends_on:
       litellm:
@@ -231,7 +218,4 @@ volumes:
   vscode_server:
   vscode_server_insiders:
   vscode_data:
-  codex_dind:
-  vscode_dind:
   claude_code_home:
-  claude_code_dind:

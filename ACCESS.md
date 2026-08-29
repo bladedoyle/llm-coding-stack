@@ -129,7 +129,8 @@ again before starting that model.
 
 ```bash
 # List available model aliases
-curl http://localhost:4000/v1/models -H "Authorization: Bearer lm-studio" | jq .
+curl http://localhost:4000/v1/models \
+  -H "Authorization: Bearer <LITELLM_MASTER_KEY-from-.env>" | jq .
 ```
 
 LiteLLM accepts `chutes/<model-id>`, `chutes-responses/<model-id>`, and

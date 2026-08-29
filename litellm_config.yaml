@@ -41,4 +41,4 @@ litellm_settings:
   drop_params: true
 
 general_settings:
-  master_key: lm-studio
+  master_key: os.environ/LITELLM_MASTER_KEY

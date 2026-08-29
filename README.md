@@ -28,6 +28,9 @@ cd local-llm-stack
 # Create your local configuration
 cp .env.example .env
 
+# Generate a gateway key and paste it after LITELLM_MASTER_KEY= in .env
+openssl rand -hex 32
+
 # Build and start the programming stack
 docker compose up -d
 ```
@@ -36,8 +39,9 @@ The default remote-first stack includes LiteLLM, the VS Code workspace, Codex
 CLI, Claude Code CLI, Qdrant, and SearXNG. LM Studio is disabled until a local
 model is selected.
 
-Set `CHUTES_API_KEY` and/or `OPENROUTER_API_KEY` in `.env` for the providers
-you intend to use. No model ID is fixed at startup.
+Set `LITELLM_MASTER_KEY` to the generated value, then set `CHUTES_API_KEY`
+and/or `OPENROUTER_API_KEY` for the providers you intend to use. Compose refuses
+to start without the gateway key. No model ID is fixed at startup.
 
 ## Model selection
 
@@ -62,8 +66,8 @@ also applied to the running agent containers without recreating them.
 ### Host applications
 
 Host applications use LiteLLM at `http://localhost:4000/v1` with API key
-`lm-studio`. Read `model-selection/selected.env` before each new request or
-session to follow the current `modelctl` selection.
+`LITELLM_MASTER_KEY` from `.env`. Read `model-selection/selected.env` before
+each new request or session to follow the current `modelctl` selection.
 
 | Selected provider | Chat Completions model | Responses API model |
 | --- | --- | --- |
@@ -127,7 +131,8 @@ tool data; keep them local.
 ### Updating an existing stack
 
 Apply this change once by rebuilding and recreating the gateway and agent
-containers. Subsequent `modelctl` selections do not recreate containers.
+containers. Add a generated `LITELLM_MASTER_KEY` to an existing `.env` first.
+Subsequent `modelctl` selections do not recreate containers.
 
 ```bash
 docker compose up -d --build --force-recreate litellm workspace codex claude-code
@@ -154,6 +159,10 @@ To change which local folder is mapped into the workspace, update the volume map
 volumes:
   - /path/to/your/actual/code:/workspaces
 ```
+
+The agent containers are unprivileged and do not expose a host or nested Docker
+daemon. Run Docker and Compose workflows from the host when they need to create
+containers.
 
 ## License
 MIT

@@ -23,3 +23,7 @@ model-selection/*
 
 # Logs
 *.log
+
+# Local model research notes
+MODELS.md
+MODELS_RAM.md

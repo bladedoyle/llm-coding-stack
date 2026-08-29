@@ -1,8 +1,16 @@
 FROM ubuntu:22.04
 
+ARG LLMSTER_VERSION=0.0.23-1
+ARG LLMSTER_INSTALLER_SHA256=f6492caf54327951d55f281133d0d9646efd62985c2465c597bfff8d35b6795f
+ARG LLMSTER_ARCHIVE_SHA512=29464e0cc52bdf31f6feb9d280d1f499cbef494f2cbdb4953a67ed90bfddbc7686d500ece337f27a57c5b9dec0e18070feaf4100592109eff59f54559be8cf37
+ARG LMSTUDIO_LLAMA_BACKEND_VERSION=2.31.2
+
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LMS_SERVER_HOST=0.0.0.0
 ENV LMS_SERVER_PORT=1234
+ENV LMSTUDIO_LLAMA_BACKEND_VERSION=${LMSTUDIO_LLAMA_BACKEND_VERSION}
+ENV LMSTUDIO_CUDA_VENDOR_PATH="/root/.lmstudio/llmster/${LLMSTER_VERSION}/.bundle/bin/extensions/backends/vendor/linux-llama-cuda-vendor-v1"
+ENV LD_LIBRARY_PATH="${LMSTUDIO_CUDA_VENDOR_PATH}"
 ENV PATH="/root/.lmstudio/bin:/root/.local/bin:${PATH}"
 
 RUN apt-get update \
@@ -16,8 +24,18 @@ RUN apt-get update \
         libgomp1 \
  && rm -rf /var/lib/apt/lists/*
 
-# Installs llmster and the lms CLI for headless LM Studio operation.
-RUN curl -fsSL https://lmstudio.ai/install.sh | bash
+# The checksum pins the official llmster 0.0.23-1 installer and its runtime
+# contract. Update it together with LMSTUDIO_LLAMA_BACKEND_VERSION.
+RUN curl -fsSL https://lmstudio.ai/install.sh -o /tmp/lmstudio-install.sh \
+ && printf '%s  %s\n' "$LLMSTER_INSTALLER_SHA256" /tmp/lmstudio-install.sh \
+      | sha256sum --check --strict - \
+ && grep -Fqx "APP_VERSION=\"$LLMSTER_VERSION\"" /tmp/lmstudio-install.sh \
+ && test "$(curl -fsSL "https://llmster.lmstudio.ai/download/${LLMSTER_VERSION}-linux-x64.full.tar.gz.sha512")" = "$LLMSTER_ARCHIVE_SHA512" \
+ && sh /tmp/lmstudio-install.sh --no-modify-path \
+ && rm -f /tmp/lmstudio-install.sh \
+ && lms --version \
+ && test -f "$LMSTUDIO_CUDA_VENDOR_PATH/libcudart.so.11.0" \
+ && test -f "$LMSTUDIO_CUDA_VENDOR_PATH/libcublas.so.11"
 
 EXPOSE 1234
 
