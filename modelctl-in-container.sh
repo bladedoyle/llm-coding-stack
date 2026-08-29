@@ -87,11 +87,28 @@ route_for() {
 configure_codex() {
   config_file="${CODEX_CONFIG_FILE:-$HOME/.codex/config.toml}"
   catalog_file="${CODEX_MODEL_CATALOG_JSON:-$HOME/.codex/model-catalogs/local.json}"
+  context_limit=10000
+  reasoning_effort=max
+  reasoning_levels='[
+    {"effort":"low","description":"Provider-dependent reasoning"},
+    {"effort":"medium","description":"Provider-dependent reasoning"}
+  ]'
   temporary_file="${config_file}.tmp"
+
+  if [ "$provider" = local ]; then
+    context_limit=32768
+    reasoning_effort=high
+    reasoning_levels='[
+      {"effort":"low","description":"Provider-dependent reasoning"},
+      {"effort":"medium","description":"Provider-dependent reasoning"},
+      {"effort":"high","description":"Provider-dependent reasoning"}
+    ]'
+  fi
 
   sed \
     -e 's|^model_provider = .*|model_provider = "litellm"|' \
     -e "s|^model = .*|model = \"$route\"|" \
+    -e "s|^model_reasoning_effort = .*|model_reasoning_effort = \"$reasoning_effort\"|" \
     "$config_file" > "$temporary_file"
   preserve_owner "$config_file" "$temporary_file"
   mv "$temporary_file" "$config_file"
@@ -99,9 +116,13 @@ configure_codex() {
   if [ -r "$catalog_file" ]; then
     temporary_file="${catalog_file}.tmp"
     jq --arg model "$route" \
+      --argjson context_limit "$context_limit" \
+      --argjson reasoning_levels "$reasoning_levels" \
       '.models[0].slug = $model
        | .models[0].display_name = $model
-       | .models[0].description = "Selected with modelctl"' \
+       | .models[0].description = "Selected with modelctl"
+       | .models[0].truncation_policy = {"mode": "tokens", "limit": $context_limit}
+       | .models[0].supported_reasoning_levels = $reasoning_levels' \
       "$catalog_file" > "$temporary_file"
     preserve_owner "$catalog_file" "$temporary_file"
     mv "$temporary_file" "$catalog_file"

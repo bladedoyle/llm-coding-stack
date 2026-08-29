@@ -48,6 +48,9 @@ VS Code Codex sessions:
 ./modelctl use chutes deepseek-ai/DeepSeek-V3.2-TEE
 ./modelctl use openrouter tencent/hy3:free
 ./modelctl use local openai/gpt-oss-20b
+./modelctl use-local-coding
+./modelctl use-local-coding-quality
+./modelctl local stop
 ./modelctl list
 ```
 
@@ -83,6 +86,24 @@ Selecting a local model starts the optional LM Studio service, downloads the
 model when needed, unloads the previous local LLM, and loads the new one as
 `local/model`. This can take time and should only be done after existing local
 agent sessions have finished.
+
+`./modelctl use-local-coding` is the NVIDIA coding preset. It recreates LM
+Studio with a 32,768-token context and full GPU offload, downloads the pinned
+gpt-oss-20b MXFP4 artifact when needed, and selects it as `local/model`.
+
+`./modelctl use-local-coding-quality` selects the measured gpt-oss-120b MXFP4
+quality preset with six GPU layers split across both cards, the remaining
+weights memory-mapped from host memory, and a project-managed swap file sized
+so physical RAM plus usable swap equals 128 GiB. `./modelctl local stop`
+unloads the model, stops LM Studio, and disables only that swap file while
+retaining it for the next run. See `MODELS_RAM.md` for the measurements and
+tradeoffs.
+
+Local selections are persisted in `model-selection/lmstudio-startup.env`.
+LM Studio uses `restart: unless-stopped` and automatically reloads that model
+after a process or Docker daemon restart. After an intentional
+`./modelctl local stop`, run the applicable preset again; the quality preset
+must re-enable its project-managed swap before it can start.
 
 On NVIDIA hosts, expose GPUs to LM Studio before selecting a local model:
 

@@ -4,19 +4,27 @@ set -euo pipefail
 stack_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 state_dir="$stack_dir/model-selection"
 state_file="$state_dir/selected.env"
+startup_state_file="$state_dir/lmstudio-startup.env"
+project_swap_path="$stack_dir/.modelctl.swap"
+project_swap_total_bytes=$((128 * 1024 * 1024 * 1024))
 
 usage() {
   cat >&2 <<'EOF'
 Usage:
   ./modelctl use <chutes|openrouter|local> <model-id>
+  ./modelctl use-local-coding
+  ./modelctl use-local-coding-quality
   ./modelctl current
   ./modelctl list [chutes|openrouter] [count|all]
   ./modelctl local list
+  ./modelctl local stop
 
 Examples:
   ./modelctl use chutes deepseek-ai/DeepSeek-V3.2-TEE
   ./modelctl use openrouter tencent/hy3:free
   ./modelctl use local openai/gpt-oss-20b
+  ./modelctl use-local-coding
+  ./modelctl use-local-coding-quality
   ./modelctl list
   ./modelctl list chutes all
 EOF
@@ -53,62 +61,226 @@ write_state() {
   mv "$temporary_file" "$state_file"
 }
 
-wait_for_lmstudio() {
-  local attempt
+write_lmstudio_startup() {
+  local preset="$1"
+  local model="$2"
+  local download_spec="$3"
+  local load_key="$4"
+  local model_path="$5"
+  local context_window="$6"
+  local gpu_offload="$7"
+  local temporary_file
 
-  for attempt in $(seq 1 60); do
-    if docker compose exec -T lmstudio curl -fsS http://127.0.0.1:1234/api/v1/models >/dev/null 2>&1; then
+  install -d -m 0755 "$state_dir"
+  temporary_file=$(mktemp "$state_dir/.lmstudio-startup.env.XXXXXX")
+  printf 'PRESET=%s\nMODEL_ID=%s\nDOWNLOAD_SPEC=%s\nLOAD_KEY=%s\nMODEL_PATH=%s\nCONTEXT_WINDOW=%s\nGPU_OFFLOAD=%s\n' \
+    "$preset" "$model" "$download_spec" "$load_key" "$model_path" "$context_window" "$gpu_offload" \
+    > "$temporary_file"
+  chmod 0644 "$temporary_file"
+  mv "$temporary_file" "$startup_state_file"
+}
+
+wait_for_local_model() {
+  local attempt container_id initial_restart_count models_json restart_count status
+
+  container_id=$(docker compose ps -a -q lmstudio)
+  if [[ -z "$container_id" ]]; then
+    echo "The LM Studio container does not exist." >&2
+    return 1
+  fi
+  initial_restart_count=$(docker inspect --format '{{.RestartCount}}' "$container_id")
+
+  for attempt in $(seq 1 900); do
+    status=$(docker inspect --format '{{.State.Status}}' "$container_id")
+    restart_count=$(docker inspect --format '{{.RestartCount}}' "$container_id")
+    if [[ "$status" == exited || "$status" == dead || "$restart_count" != "$initial_restart_count" ]]; then
+      docker compose logs --tail 120 lmstudio >&2 || true
+      echo "The LM Studio process exited while loading the selected model." >&2
+      return 1
+    fi
+    if models_json=$(curl -fsS --max-time 2 http://127.0.0.1:1234/v1/models 2>/dev/null) \
+      && jq -e '.data | any(.id == "local/model")' <<<"$models_json" >/dev/null; then
       return
     fi
     sleep 1
   done
 
-  echo "LM Studio did not become ready within 60 seconds." >&2
-  exit 1
+  docker compose logs --tail 120 lmstudio >&2 || true
+  echo "The selected local model did not become ready within 15 minutes." >&2
+  return 1
+}
+
+verify_quality_model() {
+  local available_kib props_json
+
+  props_json=$(curl -fsS --max-time 10 http://127.0.0.1:1234/props)
+  jq -e '
+    .default_generation_settings.n_ctx == 32768
+      and .total_slots == 1
+      and .model_alias == "local/model"
+      and .model_path == "/root/.lmstudio/models/ggml-org/gpt-oss-120b-GGUF/gpt-oss-120b-MXFP4.gguf"
+      and .modalities.vision == false
+  ' <<<"$props_json" >/dev/null
+
+  available_kib=$(awk '/^MemAvailable:/ { print $2; exit }' /proc/meminfo)
+  if (( available_kib < 2 * 1024 * 1024 )); then
+    echo "gpt-oss-120b left less than 2 GiB of available system memory." >&2
+    return 1
+  fi
+  if nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits \
+    | awk '$1 < 512 { insufficient = 1 } END { exit insufficient }'; then
+    return
+  fi
+  echo "gpt-oss-120b left less than 512 MiB free on at least one GPU." >&2
+  return 1
+}
+
+project_swap_is_active() {
+  awk -v path="$project_swap_path" 'NR > 1 && $1 == path { found = 1 } END { exit !found }' /proc/swaps
+}
+
+disable_project_swap() {
+  if project_swap_is_active; then
+    sudo swapoff "$project_swap_path"
+  fi
+}
+
+enable_project_swap() {
+  local available_bytes current_bytes desired_file_bytes desired_usable_bytes
+  local filesystem_type memtotal_bytes memtotal_kib page_bytes required_bytes
+  local safety_bytes swap_type
+
+  memtotal_kib=$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo)
+  case "$memtotal_kib" in
+    ''|*[!0-9]*) echo "Could not determine physical memory size." >&2; exit 1 ;;
+  esac
+  memtotal_bytes=$((memtotal_kib * 1024))
+  if (( memtotal_bytes >= project_swap_total_bytes )); then
+    return
+  fi
+
+  page_bytes=$(getconf PAGESIZE)
+  desired_usable_bytes=$((project_swap_total_bytes - memtotal_bytes))
+  desired_file_bytes=$((desired_usable_bytes + page_bytes))
+  filesystem_type=$(findmnt --noheadings --output FSTYPE --target "$stack_dir")
+  if [[ "$filesystem_type" != ext4 ]]; then
+    echo "The managed swap file requires ext4; $stack_dir is on $filesystem_type." >&2
+    exit 1
+  fi
+  if [[ -L "$project_swap_path" || (-e "$project_swap_path" && ! -f "$project_swap_path") ]]; then
+    echo "$project_swap_path must be a regular file." >&2
+    exit 1
+  fi
+
+  current_bytes=0
+  if [[ -e "$project_swap_path" ]]; then
+    current_bytes=$(stat --format=%s "$project_swap_path")
+  fi
+  if (( current_bytes != desired_file_bytes )); then
+    if project_swap_is_active; then
+      sudo swapoff "$project_swap_path"
+    fi
+    required_bytes=$((desired_file_bytes - current_bytes))
+    if (( required_bytes < 0 )); then
+      required_bytes=0
+    fi
+    available_bytes=$(df --block-size=1 --output=avail "$stack_dir" | awk 'NR == 2 { print $1 }')
+    safety_bytes=$((1024 * 1024 * 1024))
+    if (( available_bytes < required_bytes + safety_bytes )); then
+      echo "Insufficient disk space for $project_swap_path; need the growth plus 1 GiB free." >&2
+      exit 1
+    fi
+    sudo fallocate --length "$desired_file_bytes" "$project_swap_path"
+    sudo chmod 0600 "$project_swap_path"
+    sudo mkswap --force "$project_swap_path" >/dev/null
+  else
+    sudo chmod 0600 "$project_swap_path"
+    if ! project_swap_is_active; then
+      swap_type=$(sudo blkid --probe --output value --match-tag TYPE "$project_swap_path" 2>/dev/null || true)
+      if [[ "$swap_type" != swap ]]; then
+        sudo mkswap --force "$project_swap_path" >/dev/null
+      fi
+    fi
+  fi
+
+  if ! project_swap_is_active; then
+    sudo swapon --priority 10 "$project_swap_path"
+  fi
+}
+
+stop_local_model() {
+  local instance ps_json
+  local -a loaded_instances
+
+  if [[ -n "$(docker compose ps -a -q lmstudio)" ]]; then
+    if ps_json=$(docker compose exec -T lmstudio lms ps --json 2>/dev/null); then
+      mapfile -t loaded_instances < <(jq -r '.[] | select(.type == "llm") | .identifier' <<<"$ps_json")
+      for instance in "${loaded_instances[@]}"; do
+        docker compose exec -T lmstudio lms unload "$instance" || true
+      done
+    fi
+    docker compose --profile local stop lmstudio
+  fi
+  disable_project_swap
+  echo "Local LLM service stopped; project-managed swap is disabled."
 }
 
 select_local_model() {
   local model="$1"
-  local context_window gpu_offload
-  local -a load_command loaded_instances
-  local instance
+  local context_window="${LOCAL_CONTEXT_WINDOW:-65536}"
+  local gpu_offload="${LOCAL_GPU_OFFLOAD:-}"
 
-  docker compose --profile local up -d lmstudio
-  wait_for_lmstudio
-
-  context_window=$(docker compose exec -T lmstudio printenv LOCAL_CONTEXT_WINDOW)
-  gpu_offload=$(docker compose exec -T lmstudio printenv LOCAL_GPU_OFFLOAD)
   case "$context_window" in
-    ''|*[!0-9]*)
-      echo "LOCAL_CONTEXT_WINDOW must be a positive integer." >&2
-      exit 2
-      ;;
+    ''|*[!0-9]*) echo "LOCAL_CONTEXT_WINDOW must be a positive integer." >&2; return 2 ;;
   esac
   if (( context_window < 1 )); then
-    echo "LOCAL_CONTEXT_WINDOW must be greater than zero." >&2
-    exit 2
+    echo "LOCAL_CONTEXT_WINDOW must be a positive integer." >&2
+    return 2
   fi
 
-  mapfile -t loaded_instances < <(
-    docker compose exec -T lmstudio lms ps --json \
-      | jq -r '.[] | select(.type == "llm") | .identifier'
-  )
-  for instance in "${loaded_instances[@]}"; do
-    docker compose exec -T lmstudio lms unload "$instance"
-  done
+  write_lmstudio_startup managed "$model" "$model" "$model" '' "$context_window" "$gpu_offload"
+  docker compose --profile local up -d --force-recreate lmstudio
+  wait_for_local_model
+}
 
-  docker compose exec -T lmstudio lms get "$model" --yes
-  load_command=(
-    lms load "$model"
-    --identifier local/model
-    --context-length "$context_window"
-    --parallel 1
-    --yes
-  )
-  if [[ -n "$gpu_offload" ]]; then
-    load_command+=(--gpu "$gpu_offload")
+select_local_coding_model() {
+  local model='lmstudio-community/gpt-oss-20b-GGUF'
+  local download_spec='https://huggingface.co/lmstudio-community/gpt-oss-20b-GGUF@mxfp4'
+  local model_path='/root/.lmstudio/models/lmstudio-community/gpt-oss-20b-GGUF/gpt-oss-20b-MXFP4.gguf'
+
+  export COMPOSE_FILE="$stack_dir/docker-compose.yml:$stack_dir/docker-compose.nvidia.yml"
+  export LOCAL_CONTEXT_WINDOW=32768
+  export LOCAL_GPU_OFFLOAD=max
+
+  write_lmstudio_startup managed "$model" "$download_spec" gpt-oss-20b "$model_path" 32768 max
+  docker compose --profile local up -d --force-recreate lmstudio
+  wait_for_local_model
+  disable_project_swap
+  write_state local "$model"
+  apply_to_running_agents
+  printf 'Selected local/%s for new Codex and Claude sessions.\n' "$model"
+}
+
+select_local_coding_quality_model() {
+  local model='ggml-org/gpt-oss-120b-GGUF'
+  local download_spec='https://huggingface.co/ggml-org/gpt-oss-120b-GGUF@mxfp4'
+  local model_path='/root/.lmstudio/models/ggml-org/gpt-oss-120b-GGUF/gpt-oss-120b-MXFP4.gguf'
+
+  enable_project_swap
+  export COMPOSE_FILE="$stack_dir/docker-compose.yml:$stack_dir/docker-compose.nvidia.yml"
+  export LOCAL_CONTEXT_WINDOW=32768
+  export LOCAL_GPU_OFFLOAD=6
+
+  write_lmstudio_startup quality "$model" "$download_spec" gpt-oss-120b "$model_path" 32768 6
+  docker compose --profile local up -d --force-recreate lmstudio
+  if ! wait_for_local_model || ! verify_quality_model; then
+    docker compose --profile local stop lmstudio
+    disable_project_swap
+    return 1
   fi
-  docker compose exec -T lmstudio "${load_command[@]}"
+  write_state local "$model"
+  apply_to_running_agents
+  printf 'Selected local/%s for new Codex and Claude sessions.\n' "$model"
 }
 
 apply_to_running_agents() {
@@ -295,6 +467,14 @@ list_models() {
 }
 
 case "${1:-}" in
+  use-local-coding-quality)
+    [[ $# -eq 1 ]] || usage
+    select_local_coding_quality_model
+    ;;
+  use-local-coding)
+    [[ $# -eq 1 ]] || usage
+    select_local_coding_model
+    ;;
   use)
     [[ $# -eq 3 ]] || usage
     provider="$2"
@@ -319,7 +499,12 @@ case "${1:-}" in
     list_models "${@:2}"
     ;;
   local)
-    [[ "${2:-}" == list && $# -eq 2 ]] || usage
+    [[ $# -eq 2 ]] || usage
+    if [[ "$2" == stop ]]; then
+      stop_local_model
+      exit
+    fi
+    [[ "$2" == list ]] || usage
     if [[ -z "$(docker compose ps -q lmstudio)" ]]; then
       echo "LM Studio is not running. Start it with: docker compose --profile local up -d lmstudio" >&2
       exit 1

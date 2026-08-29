@@ -8,7 +8,6 @@ RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        docker.io \
         git \
         procps \
         bubblewrap \
@@ -34,6 +33,12 @@ RUN apt-get update \
         python3-venv \
         sudo \
  && rm -rf /var/lib/apt/lists/*
+
+COPY install-docker-engine.sh nested-docker-entrypoint.sh /usr/local/bin/
+RUN chmod 0755 \
+        /usr/local/bin/install-docker-engine.sh \
+        /usr/local/bin/nested-docker-entrypoint.sh \
+ && install-docker-engine.sh
 
 RUN npm install -g @openai/codex
 

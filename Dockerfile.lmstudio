@@ -21,17 +21,8 @@ RUN curl -fsSL https://lmstudio.ai/install.sh | bash
 
 EXPOSE 1234
 
-# The selector loads the active coding model with the stable local/model
-# identifier after the service has started.
-ENV LMS_EMBEDDING_MODEL=text-embedding-nomic-embed-text-v1.5
+COPY lmstudio-entrypoint.sh /usr/local/bin/lmstudio-entrypoint
 
-# Startup sequence:
-#  1. Start daemon + server.
-#  2. Pull and load the embedding model.
-#  3. Stream logs so the container stays alive.
-CMD ["bash", "-lc", "\
-  lms daemon up && \
-  lms server start --bind ${LMS_SERVER_HOST} --port ${LMS_SERVER_PORT} && \
-  (lms get ${LMS_EMBEDDING_MODEL} --yes || true) && \
-  (lms load ${LMS_EMBEDDING_MODEL} -y || true) && \
-  lms log stream"]
+RUN chmod 0755 /usr/local/bin/lmstudio-entrypoint
+
+CMD ["lmstudio-entrypoint"]

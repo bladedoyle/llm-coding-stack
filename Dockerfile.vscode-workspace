@@ -12,7 +12,6 @@ RUN apt-get update \
         file \
         ca-certificates \
         curl \
-        docker.io \
         git \
         gnupg \
         jq \
@@ -35,10 +34,11 @@ RUN apt-get update \
         build-essential \
  && rm -rf /var/lib/apt/lists/*
 
-# The workspace runs an isolated Docker daemon at runtime. The vscode user can
-# use its Unix socket without sudo.
-RUN sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/bin/docker-compose && \
-    sudo chmod +x /usr/bin/docker-compose
+COPY install-docker-engine.sh nested-docker-entrypoint.sh /usr/local/bin/
+RUN chmod 0755 \
+        /usr/local/bin/install-docker-engine.sh \
+        /usr/local/bin/nested-docker-entrypoint.sh \
+ && install-docker-engine.sh
 
 RUN usermod -aG docker ${USERNAME}
 

@@ -88,9 +88,34 @@ To select a local model, run:
 ./modelctl use local openai/gpt-oss-20b
 ```
 
+For the researched NVIDIA coding setup (gpt-oss-20b MXFP4, 32K context, and
+full GPU offload), use the single preset command:
+
+```bash
+./modelctl use-local-coding
+```
+
 This starts the optional LM Studio container, then downloads and loads the
 model. It applies to new Claude sessions; do not switch while a local request is
 in progress.
+
+For the higher-quality RAM-offloaded gpt-oss-120b preset, use:
+
+```bash
+./modelctl use-local-coding-quality
+```
+
+It enables the project-managed swap file needed to simulate 128 GiB of total
+physical-plus-swap capacity and loads the recorded 32K configuration with six
+GPU layers split across both cards. Stop the local service and safely disable
+only that swap file with `./modelctl local stop`. See `MODELS_RAM.md` for the
+benchmark, memory-map explanation, and resource details.
+
+The last local selection and its load settings are persisted. The LM Studio
+container automatically restarts and reloads them after an unexpected process
+exit or Docker daemon restart. An intentional `./modelctl local stop` disables
+the quality preset's required swap; use the quality preset command to enable it
+again before starting that model.
 
 ---
 
@@ -126,6 +151,11 @@ LM Studio is optional. `./modelctl use local <model-id>` starts it if needed,
 then exposes the selected model as `local/model`. On an NVIDIA host, run the
 selector with `COMPOSE_FILE=docker-compose.yml:docker-compose.nvidia.yml` to
 expose GPUs; otherwise LM Studio runs on CPU.
+
+On this host, `./modelctl use-local-coding` applies the recorded recommended
+configuration without requiring those environment settings separately.
+`./modelctl use-local-coding-quality` applies the separately researched
+RAM-offloaded quality configuration.
 
 ```bash
 # Check loaded models

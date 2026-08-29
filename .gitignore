@@ -18,5 +18,8 @@ venv/
 model-selection/*
 !model-selection/.gitkeep
 
+# Host-managed swap used by large local coding models.
+.modelctl.swap
+
 # Logs
 *.log
