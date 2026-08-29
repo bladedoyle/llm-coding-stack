@@ -1,168 +1,257 @@
 # local-llm-stack
 
-A configurable, GPU-accelerated coding stack using Docker Compose.
+A Docker Compose development stack for running Codex CLI, Claude Code, and the
+Codex VS Code extension against either cloud models or an optional local LM
+Studio server.
 
-## Features
-- **LM Studio**: Optional local model server that runs on CPU or NVIDIA GPUs.
-- **LiteLLM**: OpenAI-compatible gateway with runtime provider/model routing.
-- **Chutes / Bittensor**: Optional cloud model pool available to the coding
-  agents alongside the local model.
-- **Codex CLI**: Autonomous coding agent for terminal-based tasks.
-- **Claude Code CLI**: Anthropic's coding agent configured for the same model
-  providers as Codex.
-- **VS Code Workspace**: Pre-configured devcontainer with full toolchain and agents.
-- **Qdrant & SearXNG**: Vector memory and web search for agents.
+## Services
 
-## Getting Started
+| Service | Purpose | Default | Host access |
+| --- | --- | --- | --- |
+| LiteLLM | Model gateway | Yes | `127.0.0.1:4000` |
+| Workspace | VS Code dev container | Yes | Dev Containers |
+| Codex | CLI agent | Yes | `docker compose exec codex` |
+| Claude Code | CLI agent | Yes | `docker compose exec claude-code` |
+| Qdrant | Vector database | Yes | `127.0.0.1:6333` |
+| SearXNG | Search engine | Yes | `127.0.0.1:8081` |
+| LM Studio | Local model server | `local` only | `127.0.0.1:1234` |
 
-### 1. Prerequisites
-- Docker and Docker Compose.
-- NVIDIA Container Toolkit only when using local GPU inference.
+All published ports bind to loopback. The default stack does not expose an API
+to other hosts.
 
-### 2. Building and Running
+## Requirements
+
+- Docker Engine and Docker Compose v2.
+- Bash, `curl`, `jq`, OpenSSL, and standard Linux command-line tools for
+  `modelctl` and initial setup.
+- An NVIDIA driver and NVIDIA Container Toolkit for either NVIDIA coding
+  preset.
+- Enough disk space for downloaded local models. Set `HF_TOKEN` when a model
+  requires authentication or higher Hugging Face download limits.
+- Passwordless or interactive `sudo` access on the host for the 120B quality
+  preset's managed swap file.
+
+Generic local models can run without the NVIDIA override. Their practical CPU,
+RAM, disk, and GPU requirements depend on the selected model and quantization.
+
+## Quick start
+
 ```bash
-# Clone the repository
 git clone <repo-url>
 cd local-llm-stack
-
-# Create your local configuration
 cp .env.example .env
-
-# Generate a gateway key and paste it after LITELLM_MASTER_KEY= in .env
 openssl rand -hex 32
-
-# Build and start the programming stack
-docker compose up -d
 ```
 
-The default remote-first stack includes LiteLLM, the VS Code workspace, Codex
-CLI, Claude Code CLI, Qdrant, and SearXNG. LM Studio is disabled until a local
-model is selected.
+Paste the generated value after `LITELLM_MASTER_KEY=` in `.env`. Compose refuses
+to render the stack without this key. Replace the Chutes and OpenRouter
+placeholders for the providers you plan to use; at least one working provider
+key is needed for remote inference.
 
-Set `LITELLM_MASTER_KEY` to the generated value, then set `CHUTES_API_KEY`
-and/or `OPENROUTER_API_KEY` for the providers you intend to use. Compose refuses
-to start without the gateway key. No model ID is fixed at startup.
+Build and start the default stack:
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+The default provider and model come from `DEFAULT_MODEL_PROVIDER` and
+`DEFAULT_MODEL` until a selection is written under `model-selection/`.
+You can omit the cloud-provider keys when the stack will only use local
+inference.
 
 ## Model selection
 
-Use the root-level selector to choose the model for new Codex, Claude Code, and
-VS Code Codex sessions:
+Run the root-level `modelctl` from the host. It updates the shared selection
+and applies it to running agent containers. Start a new Codex or Claude session
+after switching models.
 
 ```bash
+# Remote providers
 ./modelctl use chutes deepseek-ai/DeepSeek-V3.2-TEE
 ./modelctl use openrouter tencent/hy3:free
+
+# Generic local model
 ./modelctl use local openai/gpt-oss-20b
+
+# Host-tuned NVIDIA presets
 ./modelctl use-local-coding
 ./modelctl use-local-coding-quality
+
+# Inspect or stop
+./modelctl current
+./modelctl local list
 ./modelctl local stop
-./modelctl list
 ```
 
-Remote switches take effect immediately for new sessions. Any valid Chutes or
-OpenRouter model ID can be selected; LiteLLM keeps the provider credentials in
-the gateway. The selected provider/model is stored in `model-selection/` and is
-also applied to the running agent containers without recreating them.
+The client route depends on the selected provider:
 
-### Host applications
-
-Host applications use LiteLLM at `http://localhost:4000/v1` with API key
-`LITELLM_MASTER_KEY` from `.env`. Read `model-selection/selected.env` before
-each new request or session to follow the current `modelctl` selection.
-
-| Selected provider | Chat Completions model | Responses API model |
+| Provider | Codex Responses route | Claude/chat route |
 | --- | --- | --- |
-| Chutes | `chutes/<MODEL_ID>` | `chutes-responses/<MODEL_ID>` |
+| Chutes | `chutes-responses/<MODEL_ID>` | `chutes/<MODEL_ID>` |
 | OpenRouter | `openrouter/<MODEL_ID>` | `openrouter/<MODEL_ID>` |
 | Local | `local/model` | `local/model` |
 
-There is no stable selected-model gateway alias. Applications should reread or
-watch `model-selection/selected.env` to use subsequent model switches.
+There is no gateway alias for "the currently selected remote model." Host
+applications that follow `modelctl` should read
+`model-selection/selected.env` before opening a session and use the route from
+the table above.
 
-`./modelctl list` queries every provider's live model catalogue and shows
-models costing up to $1 per million input-plus-output tokens by default. It
-keeps the provider rank, identifies the provider, and sorts rows by combined
-input/output USD per million tokens, lowest first. The Parameters column shows
-the published parameter count when it is available. Pass `all` to remove the
-price limit, or pass a provider or a count (for example, `./modelctl list
-openrouter 20`) to narrow the list.
+Selecting Chutes or OpenRouter does not stop an already running LM Studio
+container. Run `./modelctl local stop` when you want to release its CPU, GPU,
+RAM, and managed-swap resources. That stop command does not change the selected
+route, so select a remote model as well when moving away from local inference.
 
-Selecting a local model starts the optional LM Studio service, downloads the
-model when needed, unloads the previous local LLM, and loads the new one as
-`local/model`. This can take time and should only be done after existing local
-agent sessions have finished.
+### Browse remote models
 
-`./modelctl use-local-coding` is the NVIDIA coding preset. It recreates LM
-Studio with a 32,768-token context and full GPU offload, downloads the pinned
-gpt-oss-20b MXFP4 artifact when needed, and selects it as `local/model`.
-Codex compacts local sessions at 24,576 tokens, reserving 8,192 tokens inside
-the model's hard 32,768-token limit for request framing, tools, reasoning, and
-output.
+`modelctl list` reads the live Chutes and OpenRouter catalogues. Results retain
+each provider's published rank and are sorted by combined input/output price.
+The default view includes models costing at most $1 per million combined
+tokens.
 
-`./modelctl use-local-coding-quality` selects the measured gpt-oss-120b MXFP4
-quality preset with six GPU layers split across both cards, the remaining
-weights memory-mapped from host memory, and a project-managed swap file sized
-so physical RAM plus usable swap equals 128 GiB. `./modelctl local stop`
-unloads the model, stops LM Studio, and disables only that swap file while
-retaining it for the next run. See `MODELS_RAM.md` for the measurements and
-tradeoffs.
+```bash
+./modelctl list
+./modelctl list 20
+./modelctl list chutes all
+./modelctl list openrouter 20
+```
 
-Local selections are persisted in `model-selection/lmstudio-startup.env`.
-LM Studio uses `restart: unless-stopped` and automatically reloads that model
-after a process or Docker daemon restart. After an intentional
-`./modelctl local stop`, run the applicable preset again; the quality preset
-must re-enable its project-managed swap before it can start.
+Use `all` to remove the price ceiling. Local models are not included because
+their cost is host-specific.
 
-On NVIDIA hosts, expose GPUs to LM Studio before selecting a local model:
+## Local inference
+
+Selecting a generic local model starts the `local` profile, downloads the model
+through LM Studio when necessary, and exposes it as `local/model`. The default
+Compose file is CPU-compatible. To expose NVIDIA GPUs for a generic selection:
 
 ```bash
 COMPOSE_FILE=docker-compose.yml:docker-compose.nvidia.yml \
   ./modelctl use local openai/gpt-oss-20b
 ```
 
-Without the NVIDIA override, local inference uses CPU and works on hosts that
-do not have NVIDIA support. Set `LOCAL_GPU_OFFLOAD` in `.env` to control LM
-Studio's CPU/GPU offload choice, and `LOCAL_CONTEXT_WINDOW` to set the local
-context length.
+`LOCAL_CONTEXT_WINDOW` and `LOCAL_GPU_OFFLOAD` in `.env` control generic local
+selections. `HF_TOKEN` is passed only to LM Studio and is optional for public
+models that permit anonymous downloads.
 
-Use `LITELLM_DEBUG_MODE=off`, `debug`, or `detailed` in `.env` to control
-LiteLLM gateway logging. `detailed` logs may contain prompts, source code, and
-tool data; keep them local.
-
-### Updating an existing stack
-
-Apply this change once by rebuilding and recreating the gateway and agent
-containers. Add a generated `LITELLM_MASTER_KEY` to an existing `.env` first.
-Subsequent `modelctl` selections do not recreate containers.
+### NVIDIA coding preset
 
 ```bash
-docker compose up -d --build --force-recreate litellm workspace codex claude-code
+./modelctl use-local-coding
 ```
 
-### 3. Usage
-For detailed instructions on using the Codex and Claude Code CLIs or connecting
-through VS Code, see [ACCESS.md](./ACCESS.md).
+This preset automatically uses `docker-compose.nvidia.yml`, downloads
+`lmstudio-community/gpt-oss-20b-GGUF` at MXFP4 when needed, sets a 32,768-token
+context, and requests full GPU offload. Codex compacts at 24,576 tokens so
+8,192 tokens remain for framing, tools, reasoning, and output.
 
-## Common Customizations
+### NVIDIA quality preset
 
-### Local GPU acceleration
-Use `docker-compose.nvidia.yml` whenever starting or selecting the local
-profile on an NVIDIA host. Set `NVIDIA_VISIBLE_DEVICES` in that override if you
-need to restrict the exposed devices.
-
-### Project Directory
-The `vscode-workspace` container mounts a local directory for your code. By default, this is the `./workspaces` folder in the repository root, mapped to `/workspaces` inside the container.
-
-To change which local folder is mapped into the workspace, update the volume mapping in `docker-compose.yml`:
-
-```yaml
-# In the workspace service:
-volumes:
-  - /path/to/your/actual/code:/workspaces
+```bash
+./modelctl use-local-coding-quality
 ```
 
-The agent containers are unprivileged and do not expose a host or nested Docker
-daemon. Run Docker and Compose workflows from the host when they need to create
-containers.
+This is a host-tuned `ggml-org/gpt-oss-120b-GGUF` MXFP4 configuration. It uses
+a 32,768-token context, six GPU layers, and a hard-coded two-GPU tensor split.
+Review `lmstudio-entrypoint.sh` before using it on different GPU hardware.
+
+The preset also:
+
+- requires the repository to be on ext4;
+- creates `.modelctl.swap` so physical RAM plus usable project swap totals
+  128 GiB;
+- requires enough disk for that swap file, the model, and a 1 GiB free-space
+  safety margin;
+- verifies at least 2 GiB of host memory and 512 MiB on each GPU remain after
+  loading; and
+- stops LM Studio and disables the project swap if selection fails or is
+  interrupted.
+
+The swap file is retained for reuse but ignored by Git. Stop local inference
+with the following command before `docker compose down` when the quality preset
+is active:
+
+```bash
+./modelctl local stop
+```
+
+That command unloads local models, stops LM Studio, and disables only the
+project-managed swap file.
+
+### Persistence and restarts
+
+Local model files live in the `lmstudio_models` named volume. Load settings are
+stored in `model-selection/lmstudio-startup.env`. LM Studio uses
+`restart: unless-stopped` and reloads the saved local selection after an
+unexpected process or Docker daemon restart. After an intentional
+`modelctl local stop`, run the applicable selection command again; the quality
+preset must re-enable swap before it starts.
+
+The LM Studio image pins llmster and its CUDA backend, verifies their download
+checksums during build, and exposes the matching bundled CUDA runtime libraries
+to the backend.
+
+## Configuration map
+
+| Path | Role |
+| --- | --- |
+| `.env` | Local credentials, default model, logging, and generic local-model settings |
+| `docker-compose.yml` | Default services, mounts, health checks, and loopback ports |
+| `docker-compose.nvidia.yml` | NVIDIA GPU exposure for LM Studio |
+| `litellm_config.yaml` | Cloud, local LLM, and local embedding gateway routes |
+| `modelctl` | Host-side selection, local-model lifecycle, and remote model catalogue |
+| `model-selection/` | Runtime selection and LM Studio restart state shared with containers |
+
+## Accessing the agents and APIs
+
+See [ACCESS.md](./ACCESS.md) for interactive and one-shot Codex and Claude
+commands, VS Code attachment, API examples, MCP services, and persistent data.
+
+## Security model
+
+- LiteLLM is the only service that receives Chutes and OpenRouter credentials.
+  Agents receive the separate `LITELLM_MASTER_KEY` used to authenticate to the
+  gateway.
+- LiteLLM, LM Studio, Qdrant, and SearXNG publish only loopback ports.
+- Workspace, Codex, and Claude Code run as UID 1000 in unprivileged containers.
+  They do not receive a Docker socket, Docker CLI, nested daemon, or privileged
+  container access.
+- Codex and Claude are configured to skip their internal approval prompts
+  because Docker is the execution boundary. They have passwordless `sudo`
+  inside their containers, outbound network access, and write access to the
+  mounted `./workspaces` directory. Treat everything in that directory as
+  writable by the agents.
+- `LITELLM_DEBUG_MODE=detailed` can log prompts, source code, tool output, and
+  request data. Keep detailed logs local and enable them only when needed.
+
+## Projects and persistent data
+
+Host projects under `./workspaces` are mounted at `/workspaces` in all three
+agent containers. Change the corresponding volume entries in
+`docker-compose.yml` if projects live elsewhere.
+
+Named volumes retain LM Studio models, Qdrant data, agent memory, Claude's home
+directory, and VS Code server state. `docker compose down` preserves them;
+`docker compose down -v` deletes them.
+
+Run Docker and Compose workflows from the host. The agent containers
+intentionally have no Docker client or daemon access.
+
+## Updating the stack
+
+Rebuild and recreate the locally built services after pulling changes:
+
+```bash
+docker compose up -d --build --force-recreate workspace codex claude-code litellm
+```
+
+If the optional local image changed, rebuild it separately without starting a
+saved model:
+
+```bash
+docker compose build lmstudio
+```
 
 ## License
+
 MIT

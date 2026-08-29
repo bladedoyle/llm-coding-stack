@@ -77,9 +77,8 @@ services:
     networks:
       - all-net
 
-  # VS Code workspace: dev container for the VS Code extension-based agent
-  # (Cline/Codex). Includes a full C/C++ toolchain and MCP servers, and talks
-  # directly to LM Studio for the responses API.
+  # VS Code workspace: dev container for the Codex extension and CLI. Includes
+  # a full development toolchain and MCP servers; model traffic uses LiteLLM.
   workspace:
     build:
       context: .
