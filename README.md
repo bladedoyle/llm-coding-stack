@@ -90,6 +90,9 @@ agent sessions have finished.
 `./modelctl use-local-coding` is the NVIDIA coding preset. It recreates LM
 Studio with a 32,768-token context and full GPU offload, downloads the pinned
 gpt-oss-20b MXFP4 artifact when needed, and selects it as `local/model`.
+Codex compacts local sessions at 24,576 tokens, reserving 8,192 tokens inside
+the model's hard 32,768-token limit for request framing, tools, reasoning, and
+output.
 
 `./modelctl use-local-coding-quality` selects the measured gpt-oss-120b MXFP4
 quality preset with six GPU layers split across both cards, the remaining

@@ -88,6 +88,8 @@ configure_codex() {
   config_file="${CODEX_CONFIG_FILE:-$HOME/.codex/config.toml}"
   catalog_file="${CODEX_MODEL_CATALOG_JSON:-$HOME/.codex/model-catalogs/local.json}"
   context_limit=10000
+  auto_compact_limit=7500
+  is_local=false
   reasoning_effort=max
   reasoning_levels='[
     {"effort":"low","description":"Provider-dependent reasoning"},
@@ -97,6 +99,8 @@ configure_codex() {
 
   if [ "$provider" = local ]; then
     context_limit=32768
+    auto_compact_limit=24576
+    is_local=true
     reasoning_effort=high
     reasoning_levels='[
       {"effort":"low","description":"Provider-dependent reasoning"},
@@ -117,11 +121,19 @@ configure_codex() {
     temporary_file="${catalog_file}.tmp"
     jq --arg model "$route" \
       --argjson context_limit "$context_limit" \
+      --argjson auto_compact_limit "$auto_compact_limit" \
+      --argjson is_local "$is_local" \
       --argjson reasoning_levels "$reasoning_levels" \
       '.models[0].slug = $model
        | .models[0].display_name = $model
        | .models[0].description = "Selected with modelctl"
        | .models[0].truncation_policy = {"mode": "tokens", "limit": $context_limit}
+       | if $is_local then
+           .models[0].max_context_window = $context_limit
+           | .models[0].auto_compact_token_limit = $auto_compact_limit
+         else
+           del(.models[0].max_context_window, .models[0].auto_compact_token_limit)
+         end
        | .models[0].supported_reasoning_levels = $reasoning_levels' \
       "$catalog_file" > "$temporary_file"
     preserve_owner "$catalog_file" "$temporary_file"

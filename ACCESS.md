@@ -95,6 +95,9 @@ full GPU offload), use the single preset command:
 ./modelctl use-local-coding
 ```
 
+Codex advertises the real 32K model maximum but compacts at 24,576 tokens to
+reserve 8,192 tokens for protocol framing, tools, reasoning, and output.
+
 This starts the optional LM Studio container, then downloads and loads the
 model. It applies to new Claude sessions; do not switch while a local request is
 in progress.
